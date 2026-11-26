@@ -1,24 +1,26 @@
-//! Patrician II main menu: language selector at the top left (no text). `[<]` flag `[>]` and a check button under
+//! Main menu (Patrician II and III): language selector at the top left (no text). `[<]` flag `[>]` and a check button under
 //! the flag. The arrows cycle the flags of the installed languages (display only); the check button (grey when the
 //! shown flag is the running language) writes `[localization] lang` to `mods\settings.ini` and restarts the game.
 //!
 //! - languages: `en` (original files) + every two-letter folder of `mods\localization\` with a known flag, in the
 //!   order GB DE DK NO SE FI EE LV LT RU; shown also with `en` alone (arrows stay on GB, check button grey)
-//! - main menu screen: vtable 61C8F8, draw vt+9Ch 42BC20 (absolute 800x600 coordinates), update vt+12Ch 42BE90
-//!   (returns -5 = quit, like the "Exit" item at 42C315)
-//! - draw hook 42BE4A (before the render target restore): runs {x, y, w, h, color} drawn with 4A7650 (x, y, w, h)
-//!   and the colour of 4A7A90 (returns the previous one)
-//! - click: the WM_LBUTTONDOWN handler entry 4ACF00 records the mouse position ([6747C8h] x, [6747C0h] y); the
-//!   menu update tests click + current position. The site is shared with the `qol.dll` speed plate: [`Plan::mid`]
-//!   chains onto the hook of whichever DLL came first; the `or byte [676839h],3` there is replayed here
+//! - addresses per game in [`P2`] / [`P3`]; below P2 (P3)
+//! - main menu screen: vtable 61C8F8 (66CCF8), draw vt+9Ch 42BC20 (42F280, absolute 800x600 coordinates), update
+//!   vt+12Ch 42BE90 (42F4F0; returns -5 = quit, like the "Exit" item at 42C315 (42F955))
+//! - draw hook 42BE4A (42F4AA) before the render target restore: runs {x, y, w, h, color} drawn with 4A7650 (4BB430)
+//!   (x, y, w, h) and the colour of 4A7A90 (4BB870; returns the previous one)
+//! - click: the WM_LBUTTONDOWN handler entry 4ACF00 (4C0C20) records the mouse position ([6747C8h] ([6DAB50h]) x,
+//!   [6747C0h] ([6DAB48h]) y); the menu update tests click + current position. The site is shared with the `qol.dll`
+//!   speed plate: [`Plan::mid`] chains onto the hook of whichever DLL came first; the `or byte [..],3` there is
+//!   replayed here
 //! - menu entered (update gap >= 300 ms): shown flag = running language, a stale click is dropped
-//! - restart: the CRT exit calls ExitProcess at 5E523D; when a language was applied, a new instance is started there
-//!   first (after the game has shut down normally): `patrician-launcher.exe` when it started this game, else the same
-//!   command line
+//! - restart: the CRT exit calls ExitProcess at 5E523D (63E278); when a language was applied, a new instance is
+//!   started there first (after the game has shut down normally): `patrician-launcher.exe` when it started this
+//!   game, else the same command line
 use pcore::ffi::*;
 use pcore::game::Base;
 use pcore::hook::{Ctx, Ins, Plan};
-use pcore::mem::{cat, hex, rd32, rel5};
+use pcore::mem::{cat, rd32, rel5};
 use pcore::{log, paths};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering::Relaxed};
@@ -41,12 +43,68 @@ const BTN: u32 = 0xffc4a66e;
 const INK: u32 = 0xff2a1c10;
 const OFF: u32 = 0xff9c8c70;
 
-const SET_COLOR: u32 = 0x4a7a90;
-const FILL: u32 = 0x4a7650;
-const INVALIDATE: u32 = 0x4a5870;
-const INV_THIS: u32 = 0x674268;
-const MX: u32 = 0x6747c8;
-const MY: u32 = 0x6747c0;
+/// Addresses of one game.
+struct Addr {
+    /// Main menu vtable, its draw (+9Ch) and update (+12Ch).
+    vt: u32,
+    draw: u32,
+    update: u32,
+    /// Draw: `mov ecx,[esp+1Ch]; push ecx` before `call restore` (render target).
+    draw_site: u32,
+    restore: u32,
+    /// Update entry: `mov al,[..]`.
+    update_ins: &'static [u8],
+    /// WM_LBUTTONDOWN handler entry: `or byte [..],3`.
+    mouse: u32,
+    mouse_ins: &'static [u8],
+    /// CRT exit: `call [ExitProcess]`.
+    exit: u32,
+    exit_ins: &'static [u8],
+    set_color: u32,
+    fill: u32,
+    invalidate: u32,
+    inv_this: u32,
+    mx: u32,
+    my: u32,
+}
+
+const P2: Addr = Addr {
+    vt: 0x61c8f8,
+    draw: 0x42bc20,
+    update: 0x42be90,
+    draw_site: 0x42be4a,
+    restore: 0x4a7bd0,
+    update_ins: &[0xa0, 0x53, 0x68, 0x67, 0x00],
+    mouse: 0x4acf00,
+    mouse_ins: &[0x80, 0x0d, 0x39, 0x68, 0x67, 0x00, 0x03],
+    exit: 0x5e523d,
+    exit_ins: &[0xff, 0x15, 0x04, 0xa3, 0x61, 0x00],
+    set_color: 0x4a7a90,
+    fill: 0x4a7650,
+    invalidate: 0x4a5870,
+    inv_this: 0x674268,
+    mx: 0x6747c8,
+    my: 0x6747c0,
+};
+
+const P3: Addr = Addr {
+    vt: 0x66ccf8,
+    draw: 0x42f280,
+    update: 0x42f4f0,
+    draw_site: 0x42f4aa,
+    restore: 0x4bb9b0,
+    update_ins: &[0xa0, 0xdb, 0xcb, 0x6d, 0x00],
+    mouse: 0x4c0c20,
+    mouse_ins: &[0x80, 0x0d, 0xc1, 0xcb, 0x6d, 0x00, 0x03],
+    exit: 0x63e278,
+    exit_ins: &[0xff, 0x15, 0x0c, 0xa2, 0x66, 0x00],
+    set_color: 0x4bb870,
+    fill: 0x4bb430,
+    invalidate: 0x4b9650,
+    inv_this: 0x6da5f0,
+    mx: 0x6dab50,
+    my: 0x6dab48,
+};
 
 /// Flag -> language codes (ISO 639-1), in the cycle order.
 const ORDER: &[(&str, &[&str])] = &[
@@ -84,6 +142,7 @@ struct Menu {
     cur: Option<usize>,
     /// `ret` (update returns -5).
     ret: u32,
+    a: &'static Addr,
 }
 
 static MENU: OnceLock<Menu> = OnceLock::new();
@@ -96,9 +155,10 @@ static RST: AtomicBool = AtomicBool::new(false);
 
 /// Install the selector. Ok = summary for the log.
 pub fn selector(p: &mut Plan, base: Base, lang: &str) -> Result<String, String> {
-    if base != Base::P2 {
-        return Err("Patrician II only".into());
-    }
+    let a: &'static Addr = match base {
+        Base::P2 => &P2,
+        Base::P3 => &P3,
+    };
     let mut codes = vec!["en".to_string()];
     let dir = paths::mods_dir().ok_or("no mods folder")?.join("localization");
     if let Ok(rd) = std::fs::read_dir(&dir) {
@@ -116,23 +176,23 @@ pub fn selector(p: &mut Plan, base: Base, lang: &str) -> Result<String, String> 
     }
     codes.sort_by_key(|c| (flag_of(c).unwrap_or(usize::MAX), c.clone()));
     let cur = codes.iter().position(|c| *c == lang);
-    p.check32(0x61c8f8 + 0x9c, 0x42bc20)?;
-    p.check32(0x61c8f8 + 0x12c, 0x42be90)?;
-    // mov ecx,[esp+1Ch]; push ecx; call 4A7BD0
-    p.mid(0x42be4a, 5, &cat(&[&hex("8b4c241c51"), &rel5(0xe8, 0x42be4f, 0x4a7bd0)]),
-        &[Ins::Bytes(&[0x8b, 0x4c, 0x24, 0x1c, 0x51])], &[], draw, 0)?;
-    // mov al,[676853h]
-    p.mid(0x42be90, 5, &hex("a053686700"), &[Ins::Bytes(&[0xa0, 0x53, 0x68, 0x67, 0x00])], &[], update, 0)?;
-    // or byte [676839h],3 (WM_LBUTTONDOWN entry, shared with the qol.dll speed plate: chained)
-    const OR_KS: &[u8] = &[0x80, 0x0d, 0x39, 0x68, 0x67, 0x00, 0x03];
-    p.mid(0x4acf00, 7, OR_KS, &[Ins::Bytes(OR_KS)], &[], mouse_down, 0)?;
+    p.check32(a.vt + 0x9c, a.draw)?;
+    p.check32(a.vt + 0x12c, a.update)?;
+    // mov ecx,[esp+1Ch]; push ecx; call restore
+    const PUSH_RT: &[u8] = &[0x8b, 0x4c, 0x24, 0x1c, 0x51];
+    p.mid(a.draw_site, 5, &cat(&[PUSH_RT, &rel5(0xe8, a.draw_site + 5, a.restore)]),
+        &[Ins::Bytes(PUSH_RT)], &[], draw, 0)?;
+    // mov al,[..]
+    p.mid(a.update, 5, a.update_ins, &[Ins::Bytes(a.update_ins)], &[], update, 0)?;
+    // or byte [..],3 (WM_LBUTTONDOWN entry, shared with the qol.dll speed plate: chained)
+    p.mid(a.mouse, 7, a.mouse_ins, &[Ins::Bytes(a.mouse_ins)], &[], mouse_down, 0)?;
     // call [ExitProcess]
-    p.mid(0x5e523d, 6, &hex("ff1504a36100"), &[Ins::Bytes(&[0xff, 0x15, 0x04, 0xa3, 0x61, 0x00])], &[], exit, 0)?;
+    p.mid(a.exit, 6, a.exit_ins, &[Ins::Bytes(a.exit_ins)], &[], exit, 0)?;
     let ret = Plan::ret_stub(0)?;
     let flags = codes.iter().map(|c| flag_runs(ORDER[flag_of(c).unwrap_or(0)].0)).collect();
     let summary = format!("{} language(s): {}", codes.len(), codes.join(" "));
     SEL.store(cur.unwrap_or(0), Relaxed);
-    let _ = MENU.set(Menu { codes, flags, base: base_runs(), on: check(INK), off: check(OFF), cur, ret });
+    let _ = MENU.set(Menu { codes, flags, base: base_runs(), on: check(INK), off: check(OFF), cur, ret, a });
     Ok(summary)
 }
 
@@ -240,43 +300,44 @@ fn check(c: u32) -> Vec<Run> {
         .collect()
 }
 
-unsafe fn set_color(c: u32) -> u32 {
-    let f: extern "C" fn(u32) -> u32 = core::mem::transmute(SET_COLOR as usize);
+unsafe fn set_color(a: &Addr, c: u32) -> u32 {
+    let f: extern "C" fn(u32) -> u32 = core::mem::transmute(a.set_color as usize);
     f(c)
 }
 
-unsafe fn runs(rs: &[Run], cur: &mut u32) {
-    let fill: extern "C" fn(i32, i32, i32, i32) -> i32 = core::mem::transmute(FILL as usize);
+unsafe fn runs(a: &Addr, rs: &[Run], cur: &mut u32) {
+    let fill: extern "C" fn(i32, i32, i32, i32) -> i32 = core::mem::transmute(a.fill as usize);
     for r in rs {
         if r.c != *cur {
             *cur = r.c;
-            set_color(r.c);
+            set_color(a, r.c);
         }
         fill(OX + r.x, OY + r.y, r.w, r.h);
     }
 }
 
-unsafe fn invalidate() {
-    let f: extern "thiscall" fn(u32, *const i32) = core::mem::transmute(INVALIDATE as usize);
-    f(INV_THIS, RC.as_ptr());
+unsafe fn invalidate(a: &Addr) {
+    let f: extern "thiscall" fn(u32, *const i32) = core::mem::transmute(a.invalidate as usize);
+    f(a.inv_this, RC.as_ptr());
 }
 
 /// Main menu draw, before the render target restore.
 unsafe extern "C" fn draw(_: *mut Ctx, _: u32) {
     let Some(m) = MENU.get() else { return };
     let sel = SEL.load(Relaxed).min(m.flags.len() - 1);
-    let old = set_color(EDGE);
+    let old = set_color(m.a, EDGE);
     let mut cur = EDGE;
-    runs(&m.base, &mut cur);
-    runs(&m.flags[sel], &mut cur);
-    runs(if m.cur == Some(sel) { &m.off } else { &m.on }, &mut cur);
-    set_color(old);
+    runs(m.a, &m.base, &mut cur);
+    runs(m.a, &m.flags[sel], &mut cur);
+    runs(m.a, if m.cur == Some(sel) { &m.off } else { &m.on }, &mut cur);
+    set_color(m.a, old);
 }
 
 /// WM_LBUTTONDOWN handler entry: record the click position (the replayed `or` follows).
 unsafe extern "C" fn mouse_down(_: *mut Ctx, _: u32) {
-    CLX.store(rd32(MX), Relaxed);
-    CLY.store(rd32(MY), Relaxed);
+    let Some(m) = MENU.get() else { return };
+    CLX.store(rd32(m.a.mx), Relaxed);
+    CLY.store(rd32(m.a.my), Relaxed);
     CLICK.store(true, Relaxed);
 }
 
@@ -290,7 +351,7 @@ unsafe extern "C" fn update(ctx: *mut Ctx, _: u32) {
         // menu entered: show the running language; a click from another screen is dropped
         if let Some(c) = m.cur {
             if SEL.swap(c, Relaxed) != c {
-                invalidate();
+                invalidate(m.a);
             }
         }
         return;
@@ -300,7 +361,7 @@ unsafe extern "C" fn update(ctx: *mut Ctx, _: u32) {
     }
     // click position and current position both inside the button
     let (cx, cy) = (CLX.load(Relaxed) as i32 - OX, CLY.load(Relaxed) as i32 - OY);
-    let (x, y) = (rd32(MX) as i32 - OX, rd32(MY) as i32 - OY);
+    let (x, y) = (rd32(m.a.mx) as i32 - OX, rd32(m.a.my) as i32 - OY);
     let inside = |l: i32, t: i32, w: i32, h: i32| {
         let hit = |x: i32, y: i32| x >= l && x < l + w && y >= t && y < t + h;
         hit(cx, cy) && hit(x, y)
@@ -309,10 +370,10 @@ unsafe extern "C" fn update(ctx: *mut Ctx, _: u32) {
     let sel = SEL.load(Relaxed).min(n - 1);
     if inside(0, 0, AW, AH) {
         SEL.store((sel + n - 1) % n, Relaxed);
-        invalidate();
+        invalidate(m.a);
     } else if inside(RX, 0, AW, AH) {
         SEL.store((sel + 1) % n, Relaxed);
-        invalidate();
+        invalidate(m.a);
     } else if inside(FX, CY, FW + 2, CH) && m.cur != Some(sel) {
         let code = &m.codes[sel];
         if !write_lang(code) {

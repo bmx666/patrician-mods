@@ -2,7 +2,7 @@
 //!
 //! Loaded by `winmm.dll`, `patrician-launcher.exe` or the P3Modding modloader, which call `start`. The language is
 //! `mods\settings.ini` `[localization] lang=<ISO 639-1 code>` (missing or invalid = `en`); its files live in
-//! `mods\localization\<lang>\` and replace the game files of the same name ([`res`]). Patrician II: language selector
+//! `mods\localization\<lang>\` and replace the game files of the same name ([`res`]). Language selector
 //! on the main menu ([`menu`]).
 
 use pcore::game::Game;
