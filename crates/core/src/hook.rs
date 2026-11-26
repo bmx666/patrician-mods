@@ -142,6 +142,25 @@ impl Plan {
         Ok(())
     }
 
+    /// Detour of a function entry (any module): `prologue` (whole position-independent instructions, at least 5 bytes)
+    /// is checked at `entry` and replaced by `jmp target` + nops. Returns a trampoline that runs the prologue and
+    /// continues in the function: calling it = calling the original.
+    pub fn detour(&mut self, entry: u32, prologue: &[u8], target: u32) -> Result<u32, String> {
+        let n = prologue.len();
+        if n < 5 {
+            return Err(format!("detour {entry:#x}: prologue shorter than 5 bytes"));
+        }
+        self.check(entry, prologue)?;
+        let cave = mem::alloc_code(n + 5)?;
+        let mut c = prologue.to_vec();
+        c.extend_from_slice(&rel5(0xe9, cave + n as u32, entry + n as u32));
+        unsafe { core::ptr::copy_nonoverlapping(c.as_ptr(), cave as *mut u8, c.len()) };
+        let mut site = rel5(0xe9, entry, target).to_vec();
+        site.resize(n, 0x90);
+        self.write(entry, site);
+        Ok(cave)
+    }
+
     /// Code address of a stub returning from a stdcall function with `args` dword arguments (`ret 4*args`), as a
     /// handler `resume` target at the function entry.
     pub fn ret_stub(args: u16) -> Result<u32, String> {

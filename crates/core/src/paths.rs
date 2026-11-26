@@ -11,6 +11,11 @@ pub fn mods_dir() -> Option<PathBuf> {
     game_dir().map(|d| d.join("mods"))
 }
 
+/// `<game>\mods\localization\<lang>`: files of one language (`lang` = ISO 639-1 code).
+pub fn localization_dir(lang: &str) -> Option<PathBuf> {
+    mods_dir().map(|d| d.join("localization").join(lang))
+}
+
 pub fn settings() -> Option<PathBuf> {
     mods_dir().map(|d| d.join("settings.ini"))
 }

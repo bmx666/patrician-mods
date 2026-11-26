@@ -11,6 +11,7 @@ Mod loader and quality-of-life mod for **Patrician II** (GOG) and **Patrician II
 | `winmm.dll` | Loads the mods when the game starts. Windows loads it automatically from the game folder. |
 | `patrician-launcher.exe` | Alternative way to start the game with the mods, without `winmm.dll` (for Wine / macOS). |
 | `mods\qol.dll` | Quality-of-life features and fixes of original bugs (see below). |
+| `mods\localization.dll` | Language files from `mods\localization\<lang>\` (see below). |
 | `mods\settings.ini` | Settings; every feature can be switched off. |
 
 The graphics renderer `ddraw_dll.dll` is not part of this package. Get it from [patrician-ddraw](https://github.com/bmx666/patrician-ddraw/releases) and replace the game's file yourself.
@@ -57,6 +58,19 @@ The loader uses the same mod interface as the [P3Modding modloader](https://p3mo
 
 Keys and speed changes are ignored while a window with a text field is open, and follow the multiplayer rules of the game (only the host or a single player changes the speed).
 
+## Language (`mods\localization.dll`)
+
+The language is set in `mods\settings.ini`:
+
+```ini
+[localization]
+lang=en         ; two-letter ISO 639-1 code; missing = en
+```
+
+Files in `mods\localization\<lang>\` replace the game files of the same name and relative path, for both games and every file the game reads from its archives (pictures, ini, scripts, fonts). Example: `mods\localization\ru\scripts\buttons.ini` replaces `scripts\buttons.ini`. Names are not case-sensitive. The folder is read once when the game starts. To get the original game back, delete the `mods` folder.
+
+Patrician II: when the language's `scripts\buttons.ini` defines `[Button6]` (72x18), the Undo button of the automatic trading window uses it (room for longer words such as Отмена or Atšaukti), and the "trade with town / office" toggles move apart to make room.
+
 ## Settings (`mods\settings.ini`)
 
 ```ini
@@ -66,6 +80,9 @@ exe=            ; launcher: game executable, empty = Patrician3.exe, else Patric
 
 [qol]
 wasd=1          ; one key per feature, see the table above; missing = 1
+
+[localization]
+lang=en         ; see Language above
 ```
 
 ## Log
@@ -89,6 +106,7 @@ sh tools/package.sh          # dist/patrician-mods-<version>.zip
 | `crates/winmm` | `winmm.dll` (forwards every export to the system `winmm.dll`) |
 | `crates/launcher` | `patrician-launcher.exe` |
 | `crates/qol` | `qol.dll` |
+| `crates/localization` | `localization.dll` |
 
 The GitHub Actions workflow `.github/workflows/build.yml` builds the zip; it runs only when started by hand.
 

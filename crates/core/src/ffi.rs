@@ -49,6 +49,7 @@ pub struct PROCESS_INFORMATION {
 #[link(name = "kernel32")]
 extern "system" {
     pub fn GetModuleHandleW(name: *const u16) -> HMODULE;
+    pub fn GetModuleFileNameA(module: HMODULE, buf: *mut u8, size: u32) -> u32;
     pub fn LoadLibraryW(name: *const u16) -> HMODULE;
     pub fn GetProcAddress(module: HMODULE, name: *const u8) -> FARPROC;
     pub fn DisableThreadLibraryCalls(module: HMODULE) -> BOOL;
