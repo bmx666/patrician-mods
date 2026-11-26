@@ -5,6 +5,11 @@
 //! registers and flags into a [`Ctx`], calls the Rust handler with it, restores the (possibly changed) registers and
 //! continues at `ctx.resume`. Default resume = the replayed instructions (if any), then back to the site.
 //!
+//! Shared sites: a site that already starts with `jmp rel32` where the original bytes do not (hooked by another mod
+//! DLL, e.g. `localization.dll` and `qol.dll` on the same WM_LBUTTONDOWN entry) is chained: only the 5-byte jump is
+//! replaced, and the default resume jumps to the previous hook instead of replaying, so that hook (and finally the
+//! original instructions) still runs. The last installed handler runs first; setting `ctx.resume` skips the rest.
+//!
 //! ```text
 //! thunk:  push <resume>; pushfd; pushad; cld; mov eax,esp; push <data>; push eax; call handler; add esp,8
 //!         popad; popfd; ret                       ; -> ctx.resume
@@ -110,7 +115,12 @@ impl Plan {
         if len < 5 + tail.len() || expect.len() < len {
             return Err(format!("hook {site:#x}: bad length"));
         }
-        self.check(site, expect)?;
+        let prev = chained(site, expect);
+        match prev {
+            None => self.check(site, expect)?,
+            Some(_) if !tail.is_empty() => return Err(format!("hook {site:#x}: hooked by another mod, a tail cannot chain")),
+            Some(_) => {}
+        }
         let back = if tail.is_empty() { site + len as u32 } else { site + 5 };
         let cave = mem::alloc_code(96)?;
         let replay_at = cave + 27;
@@ -124,20 +134,27 @@ impl Plan {
         c.extend_from_slice(&rel5(0xe8, cave + c.len() as u32, handler as usize as u32)); // call handler
         c.extend_from_slice(&[0x83, 0xc4, 0x08, 0x61, 0x9d, 0xc3]); // add esp,8; popad; popfd; ret
         debug_assert_eq!(c.len(), 27);
-        for ins in replay {
-            match ins {
-                Ins::Bytes(b) => c.extend_from_slice(b),
-                Ins::Call(to) => c.extend_from_slice(&rel5(0xe8, cave + c.len() as u32, *to)),
+        if let Some(prev) = prev {
+            // the previous hook replays the original instructions and returns to its own end of the site
+            c.extend_from_slice(&rel5(0xe9, cave + c.len() as u32, prev));
+        } else {
+            for ins in replay {
+                match ins {
+                    Ins::Bytes(b) => c.extend_from_slice(b),
+                    Ins::Call(to) => c.extend_from_slice(&rel5(0xe8, cave + c.len() as u32, *to)),
+                }
             }
+            c.extend_from_slice(&rel5(0xe9, cave + c.len() as u32, back));
         }
-        c.extend_from_slice(&rel5(0xe9, cave + c.len() as u32, back));
         if c.len() > 96 {
             return Err(format!("hook {site:#x}: replay too long"));
         }
         unsafe { core::ptr::copy_nonoverlapping(c.as_ptr(), cave as *mut u8, c.len()) };
         let mut site_bytes = rel5(0xe9, site, cave).to_vec();
-        site_bytes.extend_from_slice(tail);
-        site_bytes.resize(len, 0x90);
+        if prev.is_none() {
+            site_bytes.extend_from_slice(tail);
+            site_bytes.resize(len, 0x90);
+        }
         self.write(site, site_bytes);
         Ok(())
     }
@@ -153,9 +170,7 @@ impl Plan {
         if n < 5 {
             return Err(format!("detour {entry:#x}: prologue shorter than 5 bytes"));
         }
-        let head = unsafe { mem::bytes(entry, 5) };
-        if head[0] == 0xe9 {
-            let prev = entry.wrapping_add(5).wrapping_add(u32::from_le_bytes([head[1], head[2], head[3], head[4]]));
+        if let Some(prev) = chained(entry, prologue) {
             let cave = mem::alloc_code(5)?;
             let c = rel5(0xe9, cave, prev);
             unsafe { core::ptr::copy_nonoverlapping(c.as_ptr(), cave as *mut u8, c.len()) };
@@ -190,6 +205,13 @@ impl Plan {
         }
         Ok(n)
     }
+}
+
+/// Target of a `jmp rel32` another mod put at `site` (the original bytes `expect` do not start with one).
+fn chained(site: u32, expect: &[u8]) -> Option<u32> {
+    let head = unsafe { mem::bytes(site, 5) };
+    (head[0] == 0xe9 && expect.first() != Some(&0xe9))
+        .then(|| site.wrapping_add(5).wrapping_add(u32::from_le_bytes([head[1], head[2], head[3], head[4]])))
 }
 
 fn hexs(b: &[u8]) -> String {

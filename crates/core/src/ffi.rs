@@ -15,9 +15,6 @@ pub const CREATE_SUSPENDED: u32 = 0x4;
 pub const INVALID_FILE_ATTRIBUTES: u32 = u32::MAX;
 pub const DLL_PROCESS_ATTACH: u32 = 1;
 pub const MB_ICONERROR: u32 = 0x10;
-pub const SM_SWAPBUTTON: i32 = 23;
-pub const VK_LBUTTON: i32 = 1;
-pub const VK_RBUTTON: i32 = 2;
 
 #[repr(C)]
 pub struct STARTUPINFOW {
@@ -65,7 +62,6 @@ extern "system" {
     pub fn WritePrivateProfileStringW(section: *const u16, key: *const u16, value: *const u16, file: *const u16) -> BOOL;
     pub fn GetTickCount() -> u32;
     pub fn GetCommandLineW() -> *const u16;
-    pub fn GetCurrentProcessId() -> u32;
     pub fn GetLastError() -> u32;
     pub fn CreateProcessW(
         app: *const u16,
@@ -91,10 +87,6 @@ extern "system" {
 #[link(name = "user32")]
 extern "system" {
     pub fn MessageBoxW(window: *mut c_void, text: *const u16, caption: *const u16, ty: u32) -> i32;
-    pub fn GetAsyncKeyState(key: i32) -> i16;
-    pub fn GetSystemMetrics(index: i32) -> i32;
-    pub fn GetForegroundWindow() -> *mut c_void;
-    pub fn GetWindowThreadProcessId(window: *mut c_void, pid: *mut u32) -> u32;
 }
 
 /// Error message box (UTF-16 conversion included).

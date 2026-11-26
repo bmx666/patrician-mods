@@ -3,14 +3,15 @@
 //! shown flag is the running language) writes `[localization] lang` to `mods\settings.ini` and restarts the game.
 //!
 //! - languages: `en` (original files) + every two-letter folder of `mods\localization\` with a known flag, in the
-//!   order GB DE DK NO SE FI EE LV LT RU
+//!   order GB DE DK NO SE FI EE LV LT RU; shown also with `en` alone (arrows stay on GB, check button grey)
 //! - main menu screen: vtable 61C8F8, draw vt+9Ch 42BC20 (absolute 800x600 coordinates), update vt+12Ch 42BE90
 //!   (returns -5 = quit, like the "Exit" item at 42C315)
 //! - draw hook 42BE4A (before the render target restore): runs {x, y, w, h, color} drawn with 4A7650 (x, y, w, h)
 //!   and the colour of 4A7A90 (returns the previous one)
-//! - click: polled in the update hook (left button pressed since the last update, game window in front, mouse at
-//!   [6747C8h] / [6747C0h]); the WM_LBUTTONDOWN entry 4ACF00 belongs to `qol.dll` (speed plate)
-//! - menu entered (update gap >= 300 ms): shown flag = running language, a held button is not a click
+//! - click: the WM_LBUTTONDOWN handler entry 4ACF00 records the mouse position ([6747C8h] x, [6747C0h] y); the
+//!   menu update tests click + current position. The site is shared with the `qol.dll` speed plate: [`Plan::mid`]
+//!   chains onto the hook of whichever DLL came first; the `or byte [676839h],3` there is replayed here
+//! - menu entered (update gap >= 300 ms): shown flag = running language, a stale click is dropped
 //! - restart: the CRT exit calls ExitProcess at 5E523D; when a language was applied, a new instance is started there
 //!   first (after the game has shut down normally): `patrician-launcher.exe` when it started this game, else the same
 //!   command line
@@ -88,7 +89,9 @@ struct Menu {
 static MENU: OnceLock<Menu> = OnceLock::new();
 static SEL: AtomicUsize = AtomicUsize::new(0);
 static STAMP: AtomicU32 = AtomicU32::new(0);
-static DOWN: AtomicBool = AtomicBool::new(false);
+static CLICK: AtomicBool = AtomicBool::new(false);
+static CLX: AtomicU32 = AtomicU32::new(0);
+static CLY: AtomicU32 = AtomicU32::new(0);
 static RST: AtomicBool = AtomicBool::new(false);
 
 /// Install the selector. Ok = summary for the log.
@@ -112,10 +115,7 @@ pub fn selector(p: &mut Plan, base: Base, lang: &str) -> Result<String, String> 
         }
     }
     codes.sort_by_key(|c| (flag_of(c).unwrap_or(usize::MAX), c.clone()));
-    if codes.len() < 2 {
-        return Err("only one language installed".into());
-    }
-    let cur = codes.iter().position(|c| c == lang);
+    let cur = codes.iter().position(|c| *c == lang);
     p.check32(0x61c8f8 + 0x9c, 0x42bc20)?;
     p.check32(0x61c8f8 + 0x12c, 0x42be90)?;
     // mov ecx,[esp+1Ch]; push ecx; call 4A7BD0
@@ -123,11 +123,14 @@ pub fn selector(p: &mut Plan, base: Base, lang: &str) -> Result<String, String> 
         &[Ins::Bytes(&[0x8b, 0x4c, 0x24, 0x1c, 0x51])], &[], draw, 0)?;
     // mov al,[676853h]
     p.mid(0x42be90, 5, &hex("a053686700"), &[Ins::Bytes(&[0xa0, 0x53, 0x68, 0x67, 0x00])], &[], update, 0)?;
+    // or byte [676839h],3 (WM_LBUTTONDOWN entry, shared with the qol.dll speed plate: chained)
+    const OR_KS: &[u8] = &[0x80, 0x0d, 0x39, 0x68, 0x67, 0x00, 0x03];
+    p.mid(0x4acf00, 7, OR_KS, &[Ins::Bytes(OR_KS)], &[], mouse_down, 0)?;
     // call [ExitProcess]
     p.mid(0x5e523d, 6, &hex("ff1504a36100"), &[Ins::Bytes(&[0xff, 0x15, 0x04, 0xa3, 0x61, 0x00])], &[], exit, 0)?;
     let ret = Plan::ret_stub(0)?;
     let flags = codes.iter().map(|c| flag_runs(ORDER[flag_of(c).unwrap_or(0)].0)).collect();
-    let summary = format!("{} languages: {}", codes.len(), codes.join(" "));
+    let summary = format!("{} language(s): {}", codes.len(), codes.join(" "));
     SEL.store(cur.unwrap_or(0), Relaxed);
     let _ = MENU.set(Menu { codes, flags, base: base_runs(), on: check(INK), off: check(OFF), cur, ret });
     Ok(summary)
@@ -270,15 +273,11 @@ unsafe extern "C" fn draw(_: *mut Ctx, _: u32) {
     set_color(old);
 }
 
-/// Left (logical) mouse button down while a window of this process is in front.
-unsafe fn button_down() -> bool {
-    let mut pid = 0u32;
-    GetWindowThreadProcessId(GetForegroundWindow(), &mut pid);
-    if pid != GetCurrentProcessId() {
-        return false;
-    }
-    let vk = if GetSystemMetrics(SM_SWAPBUTTON) != 0 { VK_RBUTTON } else { VK_LBUTTON };
-    GetAsyncKeyState(vk) as u16 & 0x8000 != 0
+/// WM_LBUTTONDOWN handler entry: record the click position (the replayed `or` follows).
+unsafe extern "C" fn mouse_down(_: *mut Ctx, _: u32) {
+    CLX.store(rd32(MX), Relaxed);
+    CLY.store(rd32(MY), Relaxed);
+    CLICK.store(true, Relaxed);
 }
 
 /// Main menu update entry (thiscall, no arguments; returns the menu state).
@@ -286,10 +285,9 @@ unsafe extern "C" fn update(ctx: *mut Ctx, _: u32) {
     let Some(m) = MENU.get() else { return };
     let now = GetTickCount();
     let gap = now.wrapping_sub(STAMP.swap(now, Relaxed));
-    let down = button_down();
-    let was = DOWN.swap(down, Relaxed);
+    let click = CLICK.swap(false, Relaxed);
     if gap >= 300 {
-        // menu entered: show the running language; a button held from the previous screen is no click
+        // menu entered: show the running language; a click from another screen is dropped
         if let Some(c) = m.cur {
             if SEL.swap(c, Relaxed) != c {
                 invalidate();
@@ -297,11 +295,16 @@ unsafe extern "C" fn update(ctx: *mut Ctx, _: u32) {
         }
         return;
     }
-    if !down || was {
+    if !click {
         return;
     }
+    // click position and current position both inside the button
+    let (cx, cy) = (CLX.load(Relaxed) as i32 - OX, CLY.load(Relaxed) as i32 - OY);
     let (x, y) = (rd32(MX) as i32 - OX, rd32(MY) as i32 - OY);
-    let inside = |l: i32, t: i32, w: i32, h: i32| x >= l && x < l + w && y >= t && y < t + h;
+    let inside = |l: i32, t: i32, w: i32, h: i32| {
+        let hit = |x: i32, y: i32| x >= l && x < l + w && y >= t && y < t + h;
+        hit(cx, cy) && hit(x, y)
+    };
     let n = m.codes.len();
     let sel = SEL.load(Relaxed).min(n - 1);
     if inside(0, 0, AW, AH) {
