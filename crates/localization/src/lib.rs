@@ -2,13 +2,15 @@
 //!
 //! Loaded by `winmm.dll`, `patrician-launcher.exe` or the P3Modding modloader, which call `start`. The language is
 //! `mods\settings.ini` `[localization] lang=<ISO 639-1 code>` (missing or invalid = `en`); its files live in
-//! `mods\localization\<lang>\` and replace the game files of the same name ([`res`]).
+//! `mods\localization\<lang>\` and replace the game files of the same name ([`res`]). Patrician II: language selector
+//! on the main menu ([`menu`]).
 
 use pcore::game::Game;
 use pcore::hook::Plan;
 use pcore::{ini::Ini, log, paths, pe};
 use std::sync::atomic::{AtomicBool, Ordering};
 
+mod menu;
 mod res;
 mod ui;
 
@@ -39,6 +41,11 @@ pub extern "C" fn start() -> u32 {
         match ui::trade_row(&mut plan, base, dir.as_deref()).and_then(|()| plan.commit()) {
             Ok(n) => log::write(TAG, &format!("trade_row: on (auto-trade Undo 72 px, toggles moved, {n} patches)")),
             Err(e) => log::write(TAG, &format!("trade_row: skipped, {e}")),
+        }
+        let mut plan = Plan::new();
+        match menu::selector(&mut plan, base, &lang).and_then(|s| plan.commit().map(|n| (s, n))) {
+            Ok((s, n)) => log::write(TAG, &format!("menu: on (main menu language selector, {s}, {n} patches)")),
+            Err(e) => log::write(TAG, &format!("menu: skipped, {e}")),
         }
     }
     0
