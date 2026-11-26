@@ -41,7 +41,7 @@ const FEATURES: &[Feature] = &[
     Feature { key: "speed_keys", what: "game speed hotkeys + / -", games: BOTH, install: keys::speed_keys },
     Feature { key: "speed_plate", what: "game speed buttons below the top bar", games: BOTH, install: plate::speed_plate },
     Feature { key: "stream_open", what: "music / voice stream falls back between .mp3 and .aac", games: BOTH, install: stream::stream_open },
-    Feature { key: "widescreen", what: "third resolution = [display] width x height, any aspect ratio", games: &[Base::P2], install: wide::widescreen },
+    Feature { key: "widescreen", what: "third resolution = [display] width x height, any aspect ratio", games: BOTH, install: wide::widescreen },
 ];
 
 /// P3Modding interface: called once after loading; 0 = success.

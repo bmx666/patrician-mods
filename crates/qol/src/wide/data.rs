@@ -1,16 +1,18 @@
-//! Widescreen data, made at run time from the game's own files (port of patrician2 `tools/wide.js`):
+//! Widescreen data, made at run time from the game's own files (port of patrician2 / patrician3 `tools/wide.js`):
 //! - `images\wide\top_<w>.bmp`: top bar left part, w-284 wide (from `HauptscreenA1280.bmp`, planks repeated)
 //! - `images\wide\carv_<h>.bmp`: bottom right carving, 284 x (h-600) (from `HauptscreenE1280.bmp`)
 //! - `scripts\textures.ini`: + TEX of them; `scripts\screenGame.ini`: + TEXLIST0 ids, ANIM of the top bars / carvings;
 //!   `scripts\accelMap.ini`: + SCREEN / ANIM of the overview map per preset
 //!
-//! `arc_CreateFile` / `arc_CreateMemMapped` of `archiver.dll` are detoured (chained after `localization.dll`, which
-//! loads first by name). The first request of one of these names in a run reads the base file through the previous
-//! entry (so a language file of `localization.dll` is the base), writes the result to `mods\qol\wide\<name>` and
-//! opens that file (container NULL = file on disk); later requests open it directly. Anything else, or a failure,
-//! goes to the previous entry unchanged.
+//! `arc_CreateFile` / `arc_CreateMemMapped` of `archiver.dll` are detoured, and in P3 `cpr_OpenFile` (own body there,
+//! in P2 it calls `arc_CreateFile`); chained after `localization.dll`, which loads first by name. The first request
+//! of one of these names in a run reads the base file through the previous entry of the same kind (so a language
+//! file of `localization.dll` is the base), writes the result to `mods\qol\wide\<name>` and opens that file
+//! (container NULL = file on disk); later requests open it directly. Anything else, or a failure, goes to the
+//! previous entry unchanged.
 use super::{current_layout, Layout};
 use pcore::ffi::*;
+use pcore::game::Base;
 use pcore::hook::Plan;
 use pcore::log;
 use std::collections::{HashMap, HashSet};
@@ -20,16 +22,20 @@ use std::sync::Mutex;
 
 /// `push esi; mov esi,[esp+8]`: arc_CreateFile / arc_CreateMemMapped (or a jump of an earlier detour).
 const PROLOGUE: [u8; 5] = [0x56, 0x8b, 0x74, 0x24, 0x08];
+/// `push esi; mov esi,[esp+0Ch]`: cpr_OpenFile of the P3 build (container = 2nd argument).
+const PROLOGUE_CPR: [u8; 5] = [0x56, 0x8b, 0x74, 0x24, 0x0c];
 const MAX_PATH: usize = 260;
 
 static CREATE_FILE: AtomicU32 = AtomicU32::new(0);
 static MEM_MAPPED: AtomicU32 = AtomicU32::new(0);
+static CPR_OPEN: AtomicU32 = AtomicU32::new(0);
 static FILE_LENGTH: AtomicU32 = AtomicU32::new(0);
 static READ: AtomicU32 = AtomicU32::new(0);
 static RELEASE_FILE: AtomicU32 = AtomicU32::new(0);
 
 type CreateFile = unsafe extern "C" fn(u32, *const u8) -> u32;
 type MemMapped = unsafe extern "C" fn(u32, *const u8, *mut u32, *mut u32) -> u32;
+type CprOpen = unsafe extern "C" fn(*const u8, u32) -> u32;
 type FileLength = unsafe extern "C" fn(u32) -> i32;
 type Read = unsafe extern "C" fn(u32, *mut u8, i32) -> i32;
 type ReleaseFile = unsafe extern "C" fn(u32) -> u32;
@@ -44,7 +50,7 @@ struct Cache {
 
 static CACHE: Mutex<Option<Cache>> = Mutex::new(None);
 
-pub fn install(p: &mut Plan) -> Result<(), String> {
+pub fn install(p: &mut Plan, base: Base) -> Result<(), String> {
     let mut buf = [0u8; MAX_PATH];
     let len = unsafe { GetModuleFileNameA(core::ptr::null_mut(), buf.as_mut_ptr(), MAX_PATH as u32) } as usize;
     let exe = &buf[..len.min(MAX_PATH)];
@@ -73,13 +79,36 @@ pub fn install(p: &mut Plan) -> Result<(), String> {
     CREATE_FILE.store(t, Ordering::Relaxed);
     let t = p.detour(export("arc_CreateMemMapped")?, &PROLOGUE, mem_mapped as *const () as usize as u32)?;
     MEM_MAPPED.store(t, Ordering::Relaxed);
+    let cpr = export("cpr_OpenFile")?;
+    if base == Base::P3 {
+        let t = p.detour(cpr, &PROLOGUE_CPR, cpr_open as *const () as usize as u32)?;
+        CPR_OPEN.store(t, Ordering::Relaxed);
+    }
     *CACHE.lock().map_err(|_| "cache lock")? = Some(Cache { dir_ansi, dir, made: HashMap::new() });
     Ok(())
 }
 
+/// How a file was asked for: through `arc_CreateFile` / `arc_CreateMemMapped` or `cpr_OpenFile` (container).
+#[derive(Clone, Copy)]
+enum Via {
+    Arc(u32),
+    Cpr(u32),
+}
+
+unsafe extern "C" fn cpr_open(name: *const u8, container: u32) -> u32 {
+    let orig: CprOpen = core::mem::transmute(CPR_OPEN.load(Ordering::Relaxed) as usize);
+    if let Some(path) = file_for(Via::Cpr(container), name) {
+        let f = orig(path.as_ptr(), 0);
+        if f != 0 {
+            return f;
+        }
+    }
+    orig(name, container)
+}
+
 unsafe extern "C" fn create_file(container: u32, name: *const u8) -> u32 {
     let orig: CreateFile = core::mem::transmute(CREATE_FILE.load(Ordering::Relaxed) as usize);
-    if let Some(path) = file_for(container, name) {
+    if let Some(path) = file_for(Via::Arc(container), name) {
         let f = orig(0, path.as_ptr());
         if f != 0 {
             return f;
@@ -90,7 +119,7 @@ unsafe extern "C" fn create_file(container: u32, name: *const u8) -> u32 {
 
 unsafe extern "C" fn mem_mapped(container: u32, name: *const u8, ptr: *mut u32, len: *mut u32) -> u32 {
     let orig: MemMapped = core::mem::transmute(MEM_MAPPED.load(Ordering::Relaxed) as usize);
-    if let Some(path) = file_for(container, name) {
+    if let Some(path) = file_for(Via::Arc(container), name) {
         let m = orig(0, path.as_ptr(), ptr, len);
         if m != 0 {
             return m;
@@ -137,7 +166,7 @@ fn kind(key: &[u8], l: &Layout) -> Option<Kind> {
 }
 
 /// Path of the made file for `name`, made on the first request.
-unsafe fn file_for(container: u32, name: *const u8) -> Option<Vec<u8>> {
+unsafe fn file_for(via: Via, name: *const u8) -> Option<Vec<u8>> {
     let key = key_of(name)?;
     let l = current_layout();
     let k = kind(&key, l)?;
@@ -146,7 +175,7 @@ unsafe fn file_for(container: u32, name: *const u8) -> Option<Vec<u8>> {
     if let Some(done) = cache.made.get(&key) {
         return done.clone();
     }
-    let res = make(container, name, &k, l).and_then(|data| {
+    let res = make(via, name, &k, l).and_then(|data| {
         let rel = String::from_utf8_lossy(&key).into_owned();
         let path = cache.dir.join(&rel);
         if let Some(parent) = path.parent() {
@@ -172,14 +201,22 @@ unsafe fn file_for(container: u32, name: *const u8) -> Option<Vec<u8>> {
     out
 }
 
-/// Whole file through the previous archiver entry.
-unsafe fn read(container: u32, name: *const u8) -> Result<Vec<u8>, String> {
-    let create: CreateFile = core::mem::transmute(CREATE_FILE.load(Ordering::Relaxed) as usize);
+/// Whole file through the previous archiver entry of `via`.
+unsafe fn read(via: Via, name: *const u8) -> Result<Vec<u8>, String> {
     let length: FileLength = core::mem::transmute(FILE_LENGTH.load(Ordering::Relaxed) as usize);
     let read: Read = core::mem::transmute(READ.load(Ordering::Relaxed) as usize);
     let release: ReleaseFile = core::mem::transmute(RELEASE_FILE.load(Ordering::Relaxed) as usize);
     let what = || String::from_utf8_lossy(core::ffi::CStr::from_ptr(name.cast()).to_bytes()).into_owned();
-    let f = create(container, name);
+    let f = match via {
+        Via::Arc(c) => {
+            let create: CreateFile = core::mem::transmute(CREATE_FILE.load(Ordering::Relaxed) as usize);
+            create(c, name)
+        }
+        Via::Cpr(c) => {
+            let open: CprOpen = core::mem::transmute(CPR_OPEN.load(Ordering::Relaxed) as usize);
+            open(name, c)
+        }
+    };
     if f == 0 {
         return Err(format!("{} not found", what()));
     }
@@ -193,22 +230,22 @@ unsafe fn read(container: u32, name: *const u8) -> Result<Vec<u8>, String> {
     Ok(v)
 }
 
-unsafe fn make(container: u32, name: *const u8, k: &Kind, l: &Layout) -> Result<Vec<u8>, String> {
+unsafe fn make(via: Via, name: *const u8, k: &Kind, l: &Layout) -> Result<Vec<u8>, String> {
     match *k {
-        Kind::Textures => Ok(append(&read(container, name)?, &tex_lines(l))),
+        Kind::Textures => Ok(append(&read(via, name)?, &tex_lines(l))),
         Kind::ScreenGame => {
             let mut ids: Vec<u32> = l.widths.iter().map(|&w| top_of(l, w).tex_top).collect();
             ids.extend(l.heights.iter().map(|&h| carv_of(l, h).tex_carv));
-            let base = texlist(&read(container, name)?, &ids).ok_or("screenGame.ini: no [TEXLIST0] Count / IDs")?;
+            let base = texlist(&read(via, name)?, &ids).ok_or("screenGame.ini: no [TEXLIST0] Count / IDs")?;
             Ok(append(&base, &screen_lines(l)))
         }
-        Kind::AccelMap => Ok(append(&read(container, name)?, &accel_lines(l))),
+        Kind::AccelMap => Ok(append(&read(via, name)?, &accel_lines(l))),
         Kind::Top(w) => {
-            let a = Bmp::parse(&read(container, b"images/HauptscreenA1280.bmp\0".as_ptr())?)?;
+            let a = Bmp::parse(&read(via, b"images/HauptscreenA1280.bmp\0".as_ptr())?)?;
             Ok(top_bar(&a, w - 284).encode())
         }
         Kind::Carv(h) => {
-            let e = Bmp::parse(&read(container, b"images/HauptscreenE1280.bmp\0".as_ptr())?)?;
+            let e = Bmp::parse(&read(via, b"images/HauptscreenE1280.bmp\0".as_ptr())?)?;
             Ok(carving(&e, h - 600).encode())
         }
     }

@@ -1,16 +1,17 @@
-//! Widescreen, Patrician II (port of patrician2 `tools/exepatch.js` 2e). The third resolution of the options
-//! ("1280 x 1024", index 2) becomes one of the presets below; `mods\settings.ini` `[display] width / height` selects
-//! it at start (0 / missing = 1280x1024, the original size; a valid size that is not in the list is added to it) and
-//! is written back when the options are saved. The options list steps through all presets at index 2.
+//! Widescreen, Patrician II and III (port of the patrician2 / patrician3 `tools/exepatch.js` widescreen patch). The
+//! third resolution of the options ("1280 x 1024", index 2) becomes one of the presets below; `mods\settings.ini`
+//! `[display] width / height` selects it at start (0 / missing = 1280x1024, the original size; a valid size that is
+//! not in the list is added to it) and is written back when the options are saved. The options list steps through
+//! all presets at index 2. P3 is the P2 code with shifted addresses and object offsets ([`Addr`]).
 //!
-//! The game screen layout is mostly relative to the current size ([676958h] width, [67695Ch] height); 3 width tests
-//! `== 1280` become `> 1024`. The 1280 pieces are switched per preset: top bar anim (42387f), bottom right carving
-//! anim (423918), overview map screen (428057); the fast-travel overview map is centred at its own size. The frame
-//! pictures and ini entries of every preset are made at run time from the game's own files ([`data`]).
+//! The game screen layout is mostly relative to the current size (screen width / height); 3 width tests `== 1280`
+//! become `> 1024`. The 1280 pieces are switched per preset: top bar anim, bottom right carving anim, overview map
+//! screen; the fast-travel overview map is centred at its own size. The frame pictures and ini entries of every preset
+//! are made at run time from the game's own files ([`data`]).
 //!
-//! The game screen is built for the current preset G when a game is started / loaded (423570), so G changes only
-//! then: the options list changes PIDX (+ label); COPYG (G = preset PIDX) runs at the mode switch sites and at the
-//! screen build; 427F20 re-inits the top bar / carving when the preset changed since the build.
+//! The game screen is built for the current preset G when a game is started / loaded, so G changes only then: the
+//! options list changes PIDX (+ label); COPYG (G = preset PIDX) runs at the mode switch sites and at the screen build;
+//! the layout function re-inits the top bar / carving when the preset changed since the build.
 use crate::util::*;
 use pcore::game::Base;
 use pcore::{ini::Ini, log, paths};
@@ -41,6 +42,155 @@ const DEFAULT: (u32, u32) = (1280, 1024);
 /// Bytes per preset table entry: dd W, H, top anim, carving anim, accel screen; dq overview map scale x, y,
 /// offset x, y; dd overview map right edge, top edge.
 const ESZ: u32 = 60;
+
+/// Anim id store of the screen build (`pre; mov [ebp+disp],eax; post; call`): the anim id of G is stored instead and
+/// remembered as the loaded one.
+struct Store {
+    va: u32,
+    pre: &'static str,
+    disp: u8,
+    post: &'static str,
+    /// Callee of a trailing `call rel32` (0 = none).
+    call: u32,
+}
+
+/// Code sites of one game.
+struct Addr {
+    /// Current screen width (dd).
+    scrw: u32,
+    /// IAT entry of wsprintfA.
+    wsprintfa: u32,
+    /// Options label "1280 x 1024" (11 characters + NUL, "Invert stereo" follows).
+    label: u32,
+    /// CString::CString(const char *).
+    cstring: u32,
+    /// First free ANIM id of screenGame.ini.
+    anim0: u32,
+    /// Options resolution list (helper object ecx, [ecx+4] = index): next / previous (`8b410456be01000000`), button
+    /// enables (bytes [esp+10h..13h]) and its site `xor esi,esi; lea edi,[ecx+0Ch]`.
+    next: u32,
+    prev: u32,
+    buttons: u32,
+    buttons_site: u32,
+    /// Options save (after the resolution write), its original 10 bytes.
+    save: u32,
+    save_orig: &'static str,
+    /// Options opened (backs up the resolution) / reset to the backup: 6-byte `mov r32,[r32+disp32]` sites.
+    opened: u32,
+    opened_orig: &'static str,
+    reset: u32,
+    reset_orig: &'static str,
+    /// Mode switch sites `mov dword [esp+X],500h; mov dword [esp+Y],400h`: (va, X, Y).
+    modes: [(u32, u8, u8); 5],
+    /// Screen build: top bar / carving anim id.
+    top: Store,
+    carv: Store,
+    /// Game screen layout function (prologue `515355568bf1`), top bar / carving element offsets.
+    layout: u32,
+    el_top: u32,
+    el_carv: u32,
+    /// Overview map screen id `push 2; push ecx; mov ecx,esp`.
+    accel: u32,
+    /// Fast-travel map: x scale offset (y = +8), its `fstp qword [ecx+y]` site, `fmul qword [esi+x/y]` sites.
+    scale_x: u32,
+    scale_site: u32,
+    fmul: [(u32, bool); 6],
+    /// Gold/date box runs: (va, bytes, offset of `push y`); each starts with `mov r32,[esi+2Ch]`.
+    gold: [(u32, &'static str, usize); 7],
+    /// Gold box redraw rect `mov ebp,28h; cmp edx,eax; mov edi,4Bh` and its `mov eax,[esi+2Ch]; lea edx,[esp+44h]`.
+    rect: u32,
+    rect_x: [u32; 2],
+    /// Width tests: (va, original, patched).
+    width_tests: [(u32, &'static str, &'static str); 3],
+}
+
+const P2: Addr = Addr {
+    scrw: 0x676958,
+    wsprintfa: 0x61a4f0,
+    label: 0x6482f8,
+    cstring: 0x5fa7ad,
+    anim0: 79,
+    next: 0x402d20,
+    prev: 0x402d70,
+    buttons: 0x402c00,
+    buttons_site: 0x402cfa,
+    save: 0x456720,
+    save_orig: "8b8e480100008d542410",
+    opened: 0x456ab9,
+    opened_orig: "8b8d48010000",
+    reset: 0x45826c,
+    reset_orig: "8b968c010000",
+    modes: [(0x4226de, 0x3c, 0x40), (0x42b026, 0x18, 0x1c), (0x42f3f7, 0x3c, 0x40), (0x457e79, 0x48, 0x4c), (0x45bae9, 0x24, 0x28)],
+    top: Store { va: 0x42387f, pre: "8b4de8", disp: 0xb8, post: "8b4508", call: 0 },
+    carv: Store { va: 0x423918, pre: "52", disp: 0xbc, post: "", call: 0x5fa4b4 },
+    layout: 0x427f20,
+    el_top: 0xe28,
+    el_carv: 0x1188,
+    accel: 0x428057,
+    scale_x: 0x248,
+    scale_site: 0x401339,
+    fmul: [(0x4015c4, false), (0x4015ec, true), (0x401e75, true), (0x401ea9, false), (0x401ee9, true), (0x401f1e, false)],
+    gold: [
+        (0x40165b, "8b4e2c508b4424402bc85083e9246a2c", 14),
+        (0x4016be, "8b4e2c83c404508b4424302bc85083e9286a28", 17),
+        (0x4016f0, "8b4e2c8b7c24686a01508b4424346a31", 14),
+        (0x40173e, "8b4e2c6a01508b4424346a32", 10),
+        (0x401801, "8b562cd1f82bd0555383ea326a34", 12),
+        (0x40182d, "8b4e2c6a02508b4424346a31", 10),
+        (0x401877, "8b4e2c8bb6440200006a02508b4424346a32", 16),
+    ],
+    rect: 0x40207e,
+    rect_x: [0x40208c, 0x40211a],
+    width_tests: [
+        (0x40146b, "3d00050000b9984467007411", "3d00040000b9984467007711"),
+        (0x427fbb, "3d000500000f85ff010000", "3d00050000909090909090"),
+        (0x4284ac, "3d000500007545", "3d000500009090"),
+    ],
+};
+
+const P3: Addr = Addr {
+    scrw: 0x6dcce0,
+    wsprintfa: 0x66a3d0,
+    label: 0x69ad98,
+    cstring: 0x64f2c1,
+    anim0: 113,
+    next: 0x402cc0,
+    prev: 0x402d10,
+    buttons: 0x402ba0,
+    buttons_site: 0x402c9a,
+    save: 0x45e2b6,
+    save_orig: "8b8e880100008d542410",
+    opened: 0x45e6ce,
+    opened_orig: "8b8d68010000",
+    reset: 0x4602bc,
+    reset_orig: "8b96b8010000",
+    modes: [(0x423bf0, 0x4c, 0x50), (0x42d168, 0x18, 0x1c), (0x432d36, 0x3c, 0x40), (0x45fe68, 0x48, 0x4c), (0x463fed, 0x24, 0x28)],
+    top: Store { va: 0x425071, pre: "8b5508", disp: 0xbc, post: "", call: 0 },
+    carv: Store { va: 0x4250fd, pre: "", disp: 0xdc, post: "8b450c", call: 0 },
+    layout: 0x429a40,
+    el_top: 0xa90,
+    el_carv: 0xdf0,
+    accel: 0x429b77,
+    scale_x: 0x268,
+    scale_site: 0x401339,
+    fmul: [(0x4015de, false), (0x4015f8, true), (0x401e9a, true), (0x401ece, false), (0x401f0e, true), (0x401f43, false)],
+    gold: [
+        (0x401670, "8b562c8b4c24442bd0515083ea246a2c52", 14),
+        (0x4016d3, "8b4e2c8b54243883c4042bc8525083e9286a2851", 17),
+        (0x401705, "8b4e2c6a01508b4424386a31", 10),
+        (0x40174f, "8b4e2c6a01508b4424386a32", 10),
+        (0x40180e, "8b4e2c5255992bc26a34d1f8", 8),
+        (0x40183e, "8b4e2c6a02508b4424386a31", 10),
+        (0x401888, "8b4e2c8bb6640200006a02508b4424386a32", 16),
+    ],
+    rect: 0x4020a6,
+    rect_x: [0x4020b4, 0x402145],
+    width_tests: [
+        (0x401471, "3d00050000b920a86d007411", "3d00040000b920a86d007711"),
+        (0x429adb, "3d000500000f85ff010000", "3d00050000909090909090"),
+        (0x429ffc, "3d000500007545", "3d000500009090"),
+    ],
+};
 
 /// Layout limits: width > 1024 (800 / 1024 have their own layouts), height >= 720 (side menu ends at y = 600), even
 /// width, at most 4096x2400.
@@ -80,9 +230,9 @@ static LAYOUT: Cell<Layout> = Cell::new();
 /// Address of PIDX (preset index chosen in the options) in the hook data.
 static PIDX_VA: AtomicU32 = AtomicU32::new(0);
 
-/// Ids: textures 101.. (top bars per width), 201.. (carvings per height); screenGame anims 79.. (top bars, then
+/// Ids: textures 101.. (top bars per width), 201.. (carvings per height); screenGame anims `anim0`.. (top bars, then
 /// carvings per preset); accelMap screens 3...
-fn layout(want: (u32, u32)) -> Layout {
+fn layout(want: (u32, u32), anim0: u32) -> Layout {
     let mut sizes: Vec<(u32, u32)> = LIST.to_vec();
     if !sizes.contains(&want) {
         sizes.push(want);
@@ -103,8 +253,8 @@ fn layout(want: (u32, u32)) -> Layout {
             Preset {
                 w,
                 h,
-                anim_top: 79 + wi(w),
-                anim_carv: 79 + widths.len() as u32 + i as u32,
+                anim_top: anim0 + wi(w),
+                anim_carv: anim0 + widths.len() as u32 + i as u32,
                 accel: 3 + i as u32,
                 tex_top: 101 + wi(w),
                 tex_carv: 201 + hi(h),
@@ -143,11 +293,12 @@ fn wanted() -> (u32, u32) {
 }
 
 pub fn widescreen(p: &mut Plan, base: Base) -> Result<(), String> {
-    if base != Base::P2 {
-        return Err("Patrician II only".into());
-    }
-    let l = LAYOUT.set(layout(wanted()));
-    data::install(p)?;
+    let ad = match base {
+        Base::P2 => &P2,
+        Base::P3 => &P3,
+    };
+    let l = LAYOUT.set(layout(wanted(), ad.anim0));
+    data::install(p, base)?;
     let np = l.presets.len() as u32;
     let start = &l.presets[l.start];
     let label = format!("{} x {}", start.w, start.h);
@@ -174,8 +325,6 @@ pub fn widescreen(p: &mut Plan, base: Base) -> Result<(), String> {
     let lcarv = a.at();
     a.d32(u32::MAX);
     let sgini = a.str("./scripts/ScreenGame.ini");
-    const WSPRINTFA: u32 = 0x61a4f0;
-    const LABEL: u32 = 0x6482f8;
 
     // SETP: eax = preset index -> PIDX, options label "W x H" (all registers kept)
     let setp = a.at();
@@ -186,9 +335,9 @@ pub fn widescreen(p: &mut Plan, base: Base) -> Result<(), String> {
     a.b(&[0xff, 0x76, 0x04, 0xff, 0x36, 0x68]); // push [esi+4]; push [esi]; push FMT
     a.d32(fmt);
     a.b(&[0x68]); // push LABEL
-    a.d32(LABEL);
+    a.d32(ad.label);
     a.b(&[0xff, 0x15]); // call [wsprintfA]
-    a.d32(WSPRINTFA);
+    a.d32(ad.wsprintfa);
     a.b(&[0x83, 0xc4, 0x10, 0x61, 0xc3]); // add esp,10h; popad; ret
 
     // COPYG: G = preset PIDX (all registers kept)
@@ -207,11 +356,11 @@ pub fn widescreen(p: &mut Plan, base: Base) -> Result<(), String> {
     let orig_np = hex("8b410456be01000000"); // mov eax,[ecx+4]; push esi; mov esi,1
     let thn = a.at();
     a.b(&orig_np);
-    a.jmp(0x402d29);
+    a.jmp(ad.next + 9);
     let thp = a.at();
     a.b(&orig_np);
-    a.jmp(0x402d79);
-    // "next" 402D20: at index 2 -> next preset; else original, and arriving at 2 starts at the smallest preset
+    a.jmp(ad.prev + 9);
+    // "next": at index 2 -> next preset; else original, and arriving at 2 starts at the smallest preset
     let next = a.at();
     a.b(&[0x83, 0x79, 0x04, 0x02]); // cmp dword [ecx+4],2
     a.j8(0x75, "NO");
@@ -223,7 +372,7 @@ pub fn widescreen(p: &mut Plan, base: Base) -> Result<(), String> {
     a.call(setp);
     a.lab("RF");
     a.b(&[0x51]); // push ecx
-    a.call(0x402c00); // button enables
+    a.call(ad.buttons); // button enables
     a.b(&[0x59]); // pop ecx
     a.lab("R2");
     a.b(&[0xb8]); // mov eax,2
@@ -241,7 +390,7 @@ pub fn widescreen(p: &mut Plan, base: Base) -> Result<(), String> {
     a.j8(0xeb, "RF");
     a.lab("NR");
     a.b(&[0xc3]);
-    // "previous" 402D70: at index 2 with a preset above the smallest -> previous preset; else original
+    // "previous": at index 2 with a preset above the smallest -> previous preset; else original
     let prev = a.at();
     a.b(&[0x83, 0x79, 0x04, 0x02]);
     a.j8(0x75, "PO");
@@ -254,10 +403,10 @@ pub fn widescreen(p: &mut Plan, base: Base) -> Result<(), String> {
     a.j8(0xeb, "RF");
     a.lab("PO");
     a.jmp(thp);
-    jump(p, 0x402d20, &orig_np, next)?;
-    jump(p, 0x402d70, &orig_np, prev)?;
+    jump(p, ad.next, &orig_np, next)?;
+    jump(p, ad.prev, &orig_np, prev)?;
 
-    // 402C00 (enable the 4 buttons; bytes [esp+10h..13h]): at index 2 "+" ([esp+11h]) = not the last preset
+    // button enables (bytes [esp+10h..13h]): at index 2 "+" ([esp+11h]) = not the last preset
     let cave = a.at();
     a.b(&[0x83, 0x79, 0x04, 0x02]);
     a.j8(0x75, "BE");
@@ -266,33 +415,37 @@ pub fn widescreen(p: &mut Plan, base: Base) -> Result<(), String> {
     a.b(&[(np - 1) as u8, 0x0f, 0x9c, 0x44, 0x24, 0x11]); // setl byte [esp+11h]
     a.lab("BE");
     a.b(&hex("33f68d790c")); // xor esi,esi; lea edi,[ecx+0Ch]
-    a.jmp(0x402cff);
-    jump(p, 0x402cfa, &hex("33f68d790c"), cave)?;
+    a.jmp(ad.buttons_site + 5);
+    jump(p, ad.buttons_site, &hex("33f68d790c"), cave)?;
 
-    // options save (456720, writes AUFLOESUNG to P2.CFG): also [display] width / height to settings.ini
+    // options save (after the resolution write): also [display] width / height to settings.ini
     PIDX_VA.store(pidx, Ordering::Relaxed);
-    const SAVE: &[u8] = &[0x8b, 0x8e, 0x48, 0x01, 0x00, 0x00, 0x8d, 0x54, 0x24, 0x10]; // mov ecx,[esi+148h]; lea edx,[esp+10h]
-    p.mid(0x456720, 10, SAVE, &[Ins::Bytes(SAVE)], &[], on_save, 0)?;
+    let save: &'static [u8] = hex(ad.save_orig).leak();
+    p.mid(ad.save, save.len(), save, &[Ins::Bytes(save)], &[], on_save, 0)?;
 
-    // options opened (456AB9 backs up the settings) / reset to the backup (45826C): preset too
+    // options opened (backs up the settings) / reset to the backup: preset too
+    let orig = hex(ad.opened_orig);
     let cave = a.at();
-    a.b(&hex("8b8d4801000050a1")); // mov ecx,[ebp+148h]; push eax; mov eax,[PIDX]
+    a.b(&orig);
+    a.b(&[0x50, 0xa1]); // push eax; mov eax,[PIDX]
     a.d32(pidx);
     a.b(&[0xa3]); // mov [PBAK],eax
     a.d32(pbak);
     a.b(&[0x58]); // pop eax (used right after)
-    a.jmp(0x456abf);
-    jump(p, 0x456ab9, &hex("8b8d48010000"), cave)?;
+    a.jmp(ad.opened + 6);
+    jump(p, ad.opened, &orig, cave)?;
+    let orig = hex(ad.reset_orig);
     let cave = a.at();
     a.b(&[0x50, 0xa1]); // push eax (depth index); mov eax,[PBAK]
     a.d32(pbak);
     a.call(setp);
-    a.b(&hex("588b968c010000")); // pop eax; mov edx,[esi+18Ch]
-    a.jmp(0x458272);
-    jump(p, 0x45826c, &hex("8b968c010000"), cave)?;
+    a.b(&[0x58]); // pop eax
+    a.b(&orig);
+    a.jmp(ad.reset + 6);
+    jump(p, ad.reset, &orig, cave)?;
 
     // mode switch sites: mov dword [esp+X],500h ; mov dword [esp+Y],400h -> [GW], [GH]
-    for (va, x, y) in [(0x4226de, 0x3c, 0x40), (0x42b026, 0x18, 0x1c), (0x42f3f7, 0x3c, 0x40), (0x457e79, 0x48, 0x4c), (0x45bae9, 0x24, 0x28)] {
+    for (va, x, y) in ad.modes {
         let orig = cat(&[&[0xc7, 0x44, 0x24, x], &le(1280), &[0xc7, 0x44, 0x24, y], &le(1024)]);
         let cave = a.at();
         a.call(copyg);
@@ -304,34 +457,38 @@ pub fn widescreen(p: &mut Plan, base: Base) -> Result<(), String> {
         a.jmp(va + 16);
         jump(p, va, &orig, cave)?;
     }
-    // top bar anim id
-    let cave = a.at();
-    a.call(copyg);
-    a.b(&[0x8b, 0x4d, 0xe8, 0xa1]); // mov ecx,[ebp-18h]; mov eax,[GTOP]
-    a.d32(gtop);
-    a.b(&[0xa3]); // mov [LTOP],eax
-    a.d32(ltop);
-    a.b(&[0x89, 0x45, 0xb8, 0x8b, 0x45, 0x08]); // mov [ebp-48h],eax; mov eax,[ebp+8]
-    a.jmp(0x423888);
-    jump(p, 0x42387f, &hex("8b4de88945b88b4508"), cave)?;
-    // carving anim id
-    let cave = a.at();
-    a.b(&[0x52, 0xa1]); // push edx; mov eax,[GCARV]
-    a.d32(gcarv);
-    a.b(&[0xa3]); // mov [LCARV],eax
-    a.d32(lcarv);
-    a.b(&[0x89, 0x45, 0xbc]); // mov [ebp-44h],eax
-    a.call(0x5fa4b4);
-    a.jmp(0x423921);
-    jump(p, 0x423918, &cat(&[&hex("528945bc"), &call_bytes(0x42391c, 0x5fa4b4)]), cave)?;
+    // screen build: top bar / carving anim id
+    for (s, cur, loaded, sync) in [(&ad.top, gtop, ltop, true), (&ad.carv, gcarv, lcarv, false)] {
+        let (pre, post) = (hex(s.pre), hex(s.post));
+        let mut orig = cat(&[&pre, &[0x89, 0x45, s.disp], &post]);
+        if s.call != 0 {
+            orig.extend_from_slice(&call_bytes(s.va + orig.len() as u32, s.call));
+        }
+        let cave = a.at();
+        if sync {
+            a.call(copyg);
+        }
+        a.b(&pre);
+        a.b(&[0xa1]); // mov eax,[cur]
+        a.d32(cur);
+        a.b(&[0xa3]); // mov [loaded],eax
+        a.d32(loaded);
+        a.b(&[0x89, 0x45, s.disp]); // mov [ebp+disp],eax
+        a.b(&post);
+        if s.call != 0 {
+            a.call(s.call);
+        }
+        a.jmp(s.va + orig.len() as u32);
+        jump(p, s.va, &orig, cave)?;
+    }
 
-    // game screen layout 427F20 (runs after every mode switch, ecx = game screen): the 1280 layout takes its widths
-    // from the top bar picture (element +0E28h) and the carving (+1188h) is per height; both are loaded once at the
-    // screen build (423570). If the preset changed since, re-init them with the anims of the current preset
-    // (element vt+8 = init(CString ini, anim id) frees the old frames first).
+    // game screen layout (runs after every mode switch, ecx = game screen): the 1280 layout takes its widths from the
+    // top bar picture and the carving is per height; both are loaded once at the screen build. If the preset changed
+    // since, re-init them with the anims of the current preset (element vt+8 = init(CString ini, anim id) frees the
+    // old frames first).
     let cave = a.at();
     a.b(&[0x60, 0x8b, 0xf1]); // pushad; mov esi,ecx
-    for (cur, loaded, el, n) in [(gtop, ltop, 0xe28u32, "XT"), (gcarv, lcarv, 0x1188, "XC")] {
+    for (cur, loaded, el, n) in [(gtop, ltop, ad.el_top, "XT"), (gcarv, lcarv, ad.el_carv, "XC")] {
         a.b(&[0xa1]); // mov eax,[loaded]; cmp eax,-1 (screen not built yet); je
         a.d32(loaded);
         a.b(&[0x83, 0xf8, 0xff]);
@@ -345,47 +502,51 @@ pub fn widescreen(p: &mut Plan, base: Base) -> Result<(), String> {
         a.d32(loaded);
         a.b(&[0x50, 0x51, 0x8b, 0xcc, 0x68]); // push id; push ecx; mov ecx,esp; push ini
         a.d32(sgini);
-        a.call(0x5fa7ad); // CString(ini) in place
+        a.call(ad.cstring); // CString(ini) in place
         a.b(&[0x8d, 0x8e]); // lea ecx,[esi+el]; mov eax,[ecx]; call [eax+8]
         a.d32(el);
         a.b(&[0x8b, 0x01, 0xff, 0x50, 0x08]);
         a.lab(n);
     }
     a.b(&hex("61 51 53 55 56 8b f1")); // popad; original prologue
-    a.jmp(0x427f26);
-    jump(p, 0x427f20, &hex("515355568bf1"), cave)?;
+    a.jmp(ad.layout + 6);
+    jump(p, ad.layout, &hex("515355568bf1"), cave)?;
     // overview map screen
     let cave = a.at();
     a.b(&[0xff, 0x35]); // push [GSCR]
     a.d32(gscr);
     a.b(&[0x51, 0x8b, 0xcc]); // push ecx; mov ecx,esp
-    a.jmp(0x42805c);
-    jump(p, 0x428057, &hex("6a02518bcc"), cave)?;
+    a.jmp(ad.accel + 5);
+    jump(p, ad.accel, &hex("6a02518bcc"), cave)?;
 
-    // fast-travel overview map (object 401060): ship/town positions = world (2400x1800) * scale, scale = screen size
-    // / world size (401300), drawn from the screen origin. In wide modes (width > 1024) the map is centred at its own
-    // size: scale = map size / world, + map offset.
+    // fast-travel overview map: ship/town positions = world (2400x1800) * scale, scale = screen size / world size,
+    // drawn from the screen origin. In wide modes (width > 1024) the map is centred at its own size: scale = map size
+    // / world, + map offset.
+    let scrw = ad.scrw;
     let wide = |a: &mut Asm| {
-        a.b(&[0x81, 0x3d]); // cmp dword [676958h],400h
-        a.d32(0x676958);
+        a.b(&[0x81, 0x3d]); // cmp dword [screen width],400h
+        a.d32(scrw);
         a.d32(0x400);
     };
+    let (sx, sy) = (ad.scale_x, ad.scale_x + 8);
+    let fstp_y = cat(&[&[0xdd, 0x99], &le(sy)]);
     let cave = a.at();
-    a.b(&hex("dd9950020000")); // fstp qword [ecx+250h] (y scale)
+    a.b(&fstp_y); // fstp qword [ecx+y] (y scale)
     wide(&mut a);
     a.j8(0x76, "SC"); // jbe
-    a.b(&[0xdd, 0x05]); // fld [GSX]; fstp [ecx+248h]
+    a.b(&[0xdd, 0x05]); // fld [GSX]; fstp [ecx+x]
     a.d32(gsx);
-    a.b(&hex("dd9948020000"));
-    a.b(&[0xdd, 0x05]); // fld [GSY]; fstp [ecx+250h]
+    a.b(&[0xdd, 0x99]);
+    a.d32(sx);
+    a.b(&[0xdd, 0x05]); // fld [GSY]; fstp [ecx+y]
     a.d32(gsy);
-    a.b(&hex("dd9950020000"));
+    a.b(&fstp_y);
     a.lab("SC");
-    a.jmp(0x40133f);
-    jump(p, 0x401339, &hex("dd9950020000"), cave)?;
-    // fmul qword [esi+248h] (x) / [esi+250h] (y) -> + offset
-    for (va, x) in [(0x4015c4, false), (0x4015ec, true), (0x401e75, true), (0x401ea9, false), (0x401ee9, true), (0x401f1e, false)] {
-        let orig = cat(&[&[0xdc, 0x8e], &le(if x { 0x248 } else { 0x250 })]);
+    a.jmp(ad.scale_site + 6);
+    jump(p, ad.scale_site, &fstp_y, cave)?;
+    // fmul qword [esi+x] / [esi+y] -> + offset
+    for (va, x) in ad.fmul {
+        let orig = cat(&[&[0xdc, 0x8e], &le(if x { sx } else { sy })]);
         let n = format!("F{va:x}");
         let cave = a.at();
         a.b(&orig);
@@ -397,19 +558,13 @@ pub fn widescreen(p: &mut Plan, base: Base) -> Result<(), String> {
         a.jmp(va + 6);
         jump(p, va, &orig, cave)?;
     }
-    // gold/date box of the overview map: x = screen width - n, y = fixed (2Ch..34h) -> relative to the map's right /
-    // top edge. Each run starts with "mov r32,[esi+2Ch]" and ends with "push y"; both get wide-aware versions.
-    for (va, run) in [
-        (0x40165bu32, "8b4e2c508b4424402bc85083e9246a2c"),
-        (0x4016be, "8b4e2c83c404508b4424302bc85083e9286a28"),
-        (0x4016f0, "8b4e2c8b7c24686a01508b4424346a31"),
-        (0x40173e, "8b4e2c6a01508b4424346a32"),
-        (0x401801, "8b562cd1f82bd0555383ea326a34"),
-        (0x40182d, "8b4e2c6a02508b4424346a31"),
-        (0x401877, "8b4e2c8bb6440200006a02508b4424346a32"),
-    ] {
+    // gold/date box of the overview map: x = screen width - n, y = fixed (28h..34h) -> relative to the map's right /
+    // top edge. Each run starts with "mov r32,[esi+2Ch]" and has one "push y"; both get wide-aware versions.
+    for (va, run, yo) in ad.gold {
         let orig = hex(run);
-        let k = orig.len();
+        if orig.get(yo) != Some(&0x6a) || !orig.get(yo + 1).is_some_and(|y| (0x28..=0x34).contains(y)) {
+            return Err(format!("gold box run at {va:x}: no push y"));
+        }
         let n = format!("B{va:x}");
         let cave = a.at();
         a.b(&orig[..3]); // mov r32,[esi+2Ch]
@@ -418,19 +573,18 @@ pub fn widescreen(p: &mut Plan, base: Base) -> Result<(), String> {
         a.b(&[0x8b, 0x05 | (orig[1] & 0x38)]); // mov r32,[GRX]
         a.d32(grx);
         a.lab(&format!("{n}x"));
-        a.b(&orig[3..k - 2]);
-        a.b(&orig[k - 2..]); // push y
+        a.b(&orig[3..yo + 2]); // ... push y
         wide(&mut a);
         a.j8(0x76, &format!("{n}y"));
         a.b(&[0x50, 0xa1]); // push eax; mov eax,[GTY]; add [esp+4],eax; pop eax
         a.d32(gty);
         a.b(&[0x01, 0x44, 0x24, 0x04, 0x58]);
         a.lab(&format!("{n}y"));
-        a.jmp(va + k as u32);
+        a.b(&orig[yo + 2..]);
+        a.jmp(va + orig.len() as u32);
         jump(p, va, &orig, cave)?;
     }
-    // ...and its redraw rect (update function 401A70): left/right = screen width - 12Ch / - 28h, top/bottom = 28h /
-    // 4Bh -> map edges as above
+    // ...and its redraw rect: left/right = screen width - 12Ch / - 28h, top/bottom = 28h / 4Bh -> map edges as above
     let cave = a.at();
     a.b(&hex("bd28000000bf4b000000")); // mov ebp,28h; mov edi,4Bh
     wide(&mut a);
@@ -441,9 +595,9 @@ pub fn widescreen(p: &mut Plan, base: Base) -> Result<(), String> {
     a.d32(gty);
     a.lab("RT");
     a.b(&[0x3b, 0xd0]); // cmp edx,eax (flags for the je after)
-    a.jmp(0x40208a);
-    jump(p, 0x40207e, &hex("bd280000003bd0bf4b000000"), cave)?;
-    for va in [0x40208cu32, 0x40211a] {
+    a.jmp(ad.rect + 12);
+    jump(p, ad.rect, &hex("bd280000003bd0bf4b000000"), cave)?;
+    for va in ad.rect_x {
         let n = format!("RX{va:x}");
         let cave = a.at();
         a.b(&[0x8b, 0x46, 0x2c]); // mov eax,[esi+2Ch]
@@ -457,13 +611,13 @@ pub fn widescreen(p: &mut Plan, base: Base) -> Result<(), String> {
         jump(p, va, &hex("8b462c8d542444"), cave)?;
     }
     // width tests "== 1280" -> "> 1024"
-    p.patch(0x40146b, &hex("3d00050000b9984467007411"), &hex("3d00040000b9984467007711"))?;
-    p.patch(0x427fbb, &hex("3d000500000f85ff010000"), &hex("3d00050000909090909090"))?;
-    p.patch(0x4284ac, &hex("3d000500007545"), &hex("3d000500009090"))?;
+    for (va, orig, new) in ad.width_tests {
+        p.patch(va, &hex(orig), &hex(new))?;
+    }
     // options menu label (11 characters + NUL, "Invert stereo" follows)
     let mut lab = label.into_bytes();
     lab.resize(12, 0);
-    p.patch(LABEL, &hex("313238302078203130323400"), &lab)?;
+    p.patch(ad.label, &hex("313238302078203130323400"), &lab)?;
 
     let code = a.finish()?;
     if code.len() > 0x2000 {

@@ -55,11 +55,11 @@ The loader uses the same mod interface as the [P3Modding modloader](https://p3mo
 | `speed_keys` | ✓ | ✓ | `+` / `-` (main keyboard or numpad) change the game speed. |
 | `speed_plate` | ✓ | ✓ | Game speed buttons centred below the top bar; click to set the speed. |
 | `stream_open` | ✓ | ✓ | Music and voice files are played as `.mp3` or `.aac`, whichever exists. |
-| `widescreen` | ✓ | | The third resolution of the options ("1280 x 1024") becomes any size, see below. |
+| `widescreen` | ✓ | ✓ | The third resolution of the options ("1280 x 1024") becomes any size, see below. |
 
 Keys and speed changes are ignored while a window with a text field is open, and follow the multiplayer rules of the game (only the host or a single player changes the speed).
 
-### Widescreen (Patrician II)
+### Widescreen
 
 The third resolution of the options uses the size from `mods\settings.ini`:
 
@@ -97,7 +97,7 @@ exe=            ; launcher: game executable, empty = Patrician3.exe, else Patric
 wasd=1          ; one key per feature, see the table above; missing = 1
 
 [display]
-width=0         ; Patrician II widescreen, see above
+width=0         ; widescreen, see above
 height=0
 
 [localization]
