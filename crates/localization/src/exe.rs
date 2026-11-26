@@ -8,7 +8,8 @@
 //!   that fits (the original length + zero padding nothing points into, up to 3 bytes) is written in place; a longer
 //!   one is copied to the heap and every reference is redirected: aligned dwords of `.rdata` / `.data`, and in `.text`
 //!   the imm32 / disp32 of `push`, `mov`, `lea` (other code refs are left alone).
-//!   Number-dependent forms (`<11 digits>|form0|form1|...`, exepatch.js 2i / 2q, not ported): the last form.
+//!   Count-dependent forms (`<11 digits>|form0|form1|...`) are kept for [`crate::grammar`] when its plural hooks are
+//!   on (`%` specifiers checked per form), otherwise the last form is used.
 //! UTF-8 text is encoded with the language codepage (1251 `ru`, 1257 `lt` `lv`, else 1252); a line with a character
 //! outside it or with other `%` specifiers than the English text is skipped (counted in the log).
 use pcore::ffi::*;
@@ -88,7 +89,7 @@ impl Drop for Unprotect {
 }
 
 /// Codepage of the language's charset (patrician2 `tools/langs.js` / `charset.js`).
-fn codepage(lang: &str) -> u32 {
+pub fn codepage(lang: &str) -> u32 {
     match lang {
         "ru" => 1251,
         "lt" | "lv" => 1257,
@@ -97,7 +98,7 @@ fn codepage(lang: &str) -> u32 {
 }
 
 /// UTF-16 unit -> byte of `cp` for 0x80..0xFF.
-fn reverse_codepage(cp: u32) -> HashMap<u16, u8> {
+pub fn reverse_codepage(cp: u32) -> HashMap<u16, u8> {
     let mut m = HashMap::new();
     for b in 0x80u8..=0xff {
         let mut w = 0u16;
@@ -183,7 +184,7 @@ struct Count {
 }
 
 /// Translations of `dir\*.tsv` (sorted by name).
-fn read_tsv(dir: &Path, rev: &HashMap<u16, u8>, n: &mut Count) -> Vec<Line> {
+fn read_tsv(dir: &Path, rev: &HashMap<u16, u8>, forms: bool, n: &mut Count) -> Vec<Line> {
     let mut files: Vec<_> = std::fs::read_dir(dir)
         .map(|rd| rd.flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x.eq_ignore_ascii_case("tsv"))).collect())
         .unwrap_or_default();
@@ -207,11 +208,16 @@ fn read_tsv(dir: &Path, rev: &HashMap<u16, u8>, n: &mut Count) -> Vec<Line> {
             };
             let en = unescape(en);
             let mut tr = if tr == "\"\"" { String::new() } else { unescape(tr) };
-            // number-dependent forms "<11 digits>|form0|form1|...": the last form
-            if tr.len() > 12 && tr.as_bytes()[11] == b'|' && tr.as_bytes()[..11].iter().all(u8::is_ascii_digit) {
+            // count-dependent forms "<11 digits>|form0|form1|...": kept for the plural hooks, else the last form
+            let plural = tr.len() > 12 && tr.as_bytes()[11] == b'|' && tr.as_bytes()[..11].iter().all(u8::is_ascii_digit);
+            if plural && !forms {
                 tr = tr.rsplit('|').next().unwrap_or("").to_string();
             }
-            let fmt_ok = specifiers(&en) == specifiers(&tr) || (off == 0x249f7c && specifiers(&tr).is_empty());
+            let each: Vec<&str> = if plural && forms { tr[12..].split('|').collect() } else { vec![tr.as_str()] };
+            // the guild's "one %s." (249f7c) may drop its only %s
+            let fmt_ok = each
+                .iter()
+                .all(|x| specifiers(&en) == specifiers(x) || (off == 0x249f7c && specifiers(x).is_empty()));
             let (Some(enb), Some(trb)) = (encode(&en, rev), encode(&tr, rev)) else {
                 n.skipped += 1;
                 continue;
@@ -309,7 +315,7 @@ fn install_charset(img: &Image, cs: &[u8]) -> Result<usize, String> {
 }
 
 /// Apply `<lang dir>\exe\`. Ok = summary for the log.
-pub fn install(lang: &str, dir: &Path) -> Result<String, String> {
+pub fn install(lang: &str, dir: &Path, forms: bool) -> Result<String, String> {
     let exe = dir.join("exe");
     let cs = std::fs::read(exe.join("charset.bin")).map_err(|_| "no exe\\charset.bin".to_string())?;
     if cs.is_empty() || cs.len() > 255 || cs.contains(&0) {
@@ -318,7 +324,7 @@ pub fn install(lang: &str, dir: &Path) -> Result<String, String> {
     let img = image()?;
     let rev = reverse_codepage(codepage(lang));
     let mut n = Count::default();
-    let lines = read_tsv(&exe, &rev, &mut n);
+    let lines = read_tsv(&exe, &rev, forms, &mut n);
     // check against the untouched image first; refs of the start and of the bytes after each text
     let (lo, hi) = (img.rdata.va, img.data.va + img.data.size);
     let lines: Vec<Line> = lines
