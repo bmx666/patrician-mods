@@ -3,10 +3,10 @@
 //! Loaded by `winmm.dll`, `patrician-launcher.exe` or the P3Modding modloader, which call `start`. The language is
 //! `mods\settings.ini` `[localization] lang=<ISO 639-1 code>` (missing or invalid = `en`); its files live in
 //! `mods\localization\<lang>\<p2|p3>\` (one folder per game) and replace the game files of the same name ([`res`]);
-//! in P2 also the font charset and the texts of the executable ([`exe`]) and their grammar ([`grammar`]). Language
-//! selector on the main menu ([`menu`]).
+//! in P2 GOG and P3 GOG also the font charset, the texts of the executable ([`exe`], in P3 with the tool tips) and
+//! their grammar ([`grammar`]). Language selector on the main menu ([`menu`]).
 
-use pcore::game::Game;
+use pcore::game::{Base, Game};
 use pcore::hook::Plan;
 use pcore::{ini::Ini, log, paths, pe};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -43,11 +43,20 @@ pub extern "C" fn start() -> u32 {
         Err(e) => log::write(TAG, &format!("resources: skipped, {e}")),
     }
     let dir = paths::localization_dir(&lang, base);
-    if game == Some(Game::P2Gog) && lang != DEFAULT_LANG {
-        let forms = grammar(&lang);
-        match dir.as_deref().ok_or_else(|| "no game folder".to_string()).and_then(|d| exe::install(&lang, d, forms)) {
+    // the Steam executable decrypts its code only after start-up
+    if matches!(game, Some(Game::P2Gog | Game::P3Gog)) && lang != DEFAULT_LANG {
+        let forms = grammar(&lang, base);
+        let folder = dir.as_deref().ok_or_else(|| "no game folder".to_string());
+        match folder.and_then(|d| exe::install(&lang, d, forms, base)) {
             Ok(msg) => log::write(TAG, &format!("exe: on ({msg})")),
             Err(e) => log::write(TAG, &format!("exe: skipped, {e}")),
+        }
+        if base == Base::P3 {
+            let mut plan = Plan::new();
+            match exe::tooltips(&mut plan).and_then(|n| plan.commit().map(|k| (n, k))) {
+                Ok((n, k)) => log::write(TAG, &format!("tooltips: on ({n} strings, {k} patches)")),
+                Err(e) => log::write(TAG, &format!("tooltips: skipped, {e}")),
+            }
         }
     }
     let mut plan = Plan::new();
@@ -63,14 +72,14 @@ pub extern "C" fn start() -> u32 {
     0
 }
 
-/// Grammar hooks of the P2 translations, each committed on its own. Returns whether the plural hooks are on.
-fn grammar(lang: &str) -> bool {
+/// Grammar hooks of the translations, each committed on its own. Returns whether the plural hooks are on.
+fn grammar(lang: &str, base: Base) -> bool {
     let rev = exe::reverse_codepage(exe::codepage(lang));
     let parts: [(&str, &str, &dyn Fn(&mut Plan) -> Result<(), String>); 4] = [
-        ("drop_caps", "initials of national capitals", &|p| grammar::drop_caps(p, lang == "ru", &rev)),
-        ("plurals", "count-dependent forms", &grammar::plurals),
-        ("adjective_gender", "merchant adjective by gender", &grammar::adjective_gender),
-        ("name_capital", "merchant name at a sentence start", &grammar::name_capital),
+        ("drop_caps", "initials of national capitals", &|p| grammar::drop_caps(p, base, lang == "ru", &rev)),
+        ("plurals", "count-dependent forms", &|p| grammar::plurals(p, base)),
+        ("adjective_gender", "merchant adjective by gender", &|p| grammar::adjective_gender(p, base)),
+        ("name_capital", "merchant name at a sentence start", &|p| grammar::name_capital(p, base)),
     ];
     let mut forms = false;
     for (name, what, f) in parts {
