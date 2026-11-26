@@ -1,5 +1,5 @@
 //! Texts inside `Patrician 2.exe` (port of patrician2 `tools/exepatch.js` steps 1 / 2 / 2f, applied in memory at
-//! start): `mods\localization\<lang>\exe\`
+//! start): `mods\localization\<lang>\p2\exe\`
 //! - `charset.bin`: font charset (byte of the language codepage per glyph cell, no NUL), matching the `.aim` fonts of
 //!   the language folder. The game keeps the charset pointer next to every static copy of the original charset
 //!   string (one per module, string of 128 bytes then a pointer to it); all of them are redirected.

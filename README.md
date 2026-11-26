@@ -11,7 +11,7 @@ Mod loader and quality-of-life mod for **Patrician II** (GOG) and **Patrician II
 | `winmm.dll` | Loads the mods when the game starts. Windows loads it automatically from the game folder. |
 | `patrician-launcher.exe` | Alternative way to start the game with the mods, without `winmm.dll` (for Wine / macOS). |
 | `mods\qol.dll` | Quality-of-life features and fixes of original bugs (see below). |
-| `mods\localization.dll` | Language files from `mods\localization\<lang>\` (see below). |
+| `mods\localization.dll` | Language files from `mods\localization\<lang>\<game>\` (see below). |
 | `mods\nosmc.dll` | Faster drawing on Apple Silicon and other ARM64 hosts (see below). |
 | `mods\settings.ini` | Settings; every feature can be switched off. |
 | `Win32\Mp3dec.asi` | MP3 decoder of the game's sound system, replaces the original (see below). |
@@ -91,9 +91,9 @@ The language is set in `mods\settings.ini`:
 lang=en         ; two-letter ISO 639-1 code; missing = en
 ```
 
-Files in `mods\localization\<lang>\` replace the game files of the same name and relative path, for both games and every file the game reads from its archives (pictures, ini, scripts, fonts). Example: `mods\localization\ru\scripts\buttons.ini` replaces `scripts\buttons.ini`. Names are not case-sensitive. The folder is read once when the game starts. To get the original game back, delete the `mods` folder.
+Files in `mods\localization\<lang>\<game>\` replace the game files of the same name and relative path, for every file the game reads from its archives (pictures, ini, scripts, fonts). `<game>` is `p2` for Patrician II and `p3` for Patrician III; each game reads only its own folder. Example: `mods\localization\ru\p2\scripts\buttons.ini` replaces `scripts\buttons.ini` of Patrician II. Names are not case-sensitive. The folder is read once when the game starts. To get the original game back, delete the `mods` folder.
 
-The main menu has a language selector at the top left: `<` / `>` step through the flags of `en` and every language folder in `mods\localization\` (GB, DE, DK, NO, SE, FI, EE, LV, LT, RU; a folder without a known flag is listed in the log only), the check button below the flag writes `lang` to `mods\settings.ini` and restarts the game (grey = the running language). After `patrician-launcher.exe` the game restarts through the launcher.
+The main menu has a language selector at the top left: `<` / `>` step through the flags of `en` and every language folder in `mods\localization\` that has a folder of the running game (GB, DE, DK, NO, SE, FI, EE, LV, LT, RU; a folder without a known flag is listed in the log only), the check button below the flag writes `lang` to `mods\settings.ini` and restarts the game (grey = the running language). After `patrician-launcher.exe` the game restarts through the launcher.
 
 Patrician II: when the language's `scripts\buttons.ini` defines `[Button6]` (72x18), the Undo button of the automatic trading window uses it (room for longer words such as Отмена or Atšaukti), and the "trade with town / office" toggles move apart to make room.
 

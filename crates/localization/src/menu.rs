@@ -2,8 +2,9 @@
 //! the flag. The arrows cycle the flags of the installed languages (display only); the check button (grey when the
 //! shown flag is the running language) writes `[localization] lang` to `mods\settings.ini` and restarts the game.
 //!
-//! - languages: `en` (original files) + every two-letter folder of `mods\localization\` with a known flag, in the
-//!   order GB DE DK NO SE FI EE LV LT RU; shown also with `en` alone (arrows stay on GB, check button grey)
+//! - languages: `en` (original files) + every two-letter folder of `mods\localization\` with a known flag and a folder
+//!   of the running game (`p2` / `p3`) inside, in the order GB DE DK NO SE FI EE LV LT RU; shown also with `en` alone
+//!   (arrows stay on GB, check button grey)
 //! - addresses per game in [`P2`] / [`P3`]; below P2 (P3)
 //! - main menu screen: vtable 61C8F8 (66CCF8), draw vt+9Ch 42BC20 (42F280, absolute 800x600 coordinates), update
 //!   vt+12Ch 42BE90 (42F4F0; returns -5 = quit, like the "Exit" item at 42C315 (42F955))
@@ -164,7 +165,8 @@ pub fn selector(p: &mut Plan, base: Base, lang: &str) -> Result<String, String> 
     if let Ok(rd) = std::fs::read_dir(&dir) {
         for e in rd.flatten() {
             let name = e.file_name().to_string_lossy().to_ascii_lowercase();
-            if name.len() != 2 || !name.bytes().all(|c| c.is_ascii_alphabetic()) || !e.path().is_dir() {
+            let game_dir = e.path().join(base.dir());
+            if name.len() != 2 || !name.bytes().all(|c| c.is_ascii_alphabetic()) || !game_dir.is_dir() {
                 continue;
             }
             if flag_of(&name).is_none() {

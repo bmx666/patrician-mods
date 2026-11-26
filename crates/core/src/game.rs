@@ -19,6 +19,16 @@ pub enum Base {
     P3,
 }
 
+impl Base {
+    /// Folder of this game's files inside a language folder: `mods\localization\<lang>\<p2|p3>\`.
+    pub fn dir(self) -> &'static str {
+        match self {
+            Base::P2 => "p2",
+            Base::P3 => "p3",
+        }
+    }
+}
+
 impl Game {
     pub fn identify(info: &PeInfo) -> Option<Game> {
         match (info.timestamp, info.size_of_image) {

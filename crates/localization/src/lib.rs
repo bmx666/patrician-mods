@@ -2,9 +2,9 @@
 //!
 //! Loaded by `winmm.dll`, `patrician-launcher.exe` or the P3Modding modloader, which call `start`. The language is
 //! `mods\settings.ini` `[localization] lang=<ISO 639-1 code>` (missing or invalid = `en`); its files live in
-//! `mods\localization\<lang>\` and replace the game files of the same name ([`res`]); in P2 also the font charset and
-//! the texts of the executable ([`exe`]) and their grammar ([`grammar`]). Language selector on the main menu
-//! ([`menu`]).
+//! `mods\localization\<lang>\<p2|p3>\` (one folder per game) and replace the game files of the same name ([`res`]);
+//! in P2 also the font charset and the texts of the executable ([`exe`]) and their grammar ([`grammar`]). Language
+//! selector on the main menu ([`menu`]).
 
 use pcore::game::Game;
 use pcore::hook::Plan;
@@ -34,32 +34,31 @@ pub extern "C" fn start() -> u32 {
     let ini = Ini::load(paths::settings().as_deref());
     let lang = lang_code(ini.get("localization", "lang"));
     log::write(TAG, &format!("language: {lang}"));
-    match res::install(&lang) {
+    let Some(base) = game.map(|g| g.base()) else {
+        log::write(TAG, "skipped, unknown executable");
+        return 0;
+    };
+    match res::install(&lang, base) {
         Ok(msg) => log::write(TAG, &format!("resources: on ({msg})")),
         Err(e) => log::write(TAG, &format!("resources: skipped, {e}")),
     }
+    let dir = paths::localization_dir(&lang, base);
     if game == Some(Game::P2Gog) && lang != DEFAULT_LANG {
         let forms = grammar(&lang);
-        match paths::localization_dir(&lang)
-            .ok_or_else(|| "no game folder".to_string())
-            .and_then(|d| exe::install(&lang, &d, forms))
-        {
+        match dir.as_deref().ok_or_else(|| "no game folder".to_string()).and_then(|d| exe::install(&lang, d, forms)) {
             Ok(msg) => log::write(TAG, &format!("exe: on ({msg})")),
             Err(e) => log::write(TAG, &format!("exe: skipped, {e}")),
         }
     }
-    if let Some(base) = game.map(|g| g.base()) {
-        let dir = paths::localization_dir(&lang);
-        let mut plan = Plan::new();
-        match ui::trade_row(&mut plan, base, dir.as_deref()).and_then(|()| plan.commit()) {
-            Ok(n) => log::write(TAG, &format!("trade_row: on (auto-trade Undo 72 px, toggles moved, {n} patches)")),
-            Err(e) => log::write(TAG, &format!("trade_row: skipped, {e}")),
-        }
-        let mut plan = Plan::new();
-        match menu::selector(&mut plan, base, &lang).and_then(|s| plan.commit().map(|n| (s, n))) {
-            Ok((s, n)) => log::write(TAG, &format!("menu: on (main menu language selector, {s}, {n} patches)")),
-            Err(e) => log::write(TAG, &format!("menu: skipped, {e}")),
-        }
+    let mut plan = Plan::new();
+    match ui::trade_row(&mut plan, base, dir.as_deref()).and_then(|()| plan.commit()) {
+        Ok(n) => log::write(TAG, &format!("trade_row: on (auto-trade Undo 72 px, toggles moved, {n} patches)")),
+        Err(e) => log::write(TAG, &format!("trade_row: skipped, {e}")),
+    }
+    let mut plan = Plan::new();
+    match menu::selector(&mut plan, base, &lang).and_then(|s| plan.commit().map(|n| (s, n))) {
+        Ok((s, n)) => log::write(TAG, &format!("menu: on (main menu language selector, {s}, {n} patches)")),
+        Err(e) => log::write(TAG, &format!("menu: skipped, {e}")),
     }
     0
 }

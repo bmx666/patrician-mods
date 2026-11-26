@@ -1,4 +1,5 @@
-//! Language files from `mods\localization\<lang>\`. Every game resource (pictures, ini, scripts, fonts, ...) is opened
+//! Language files from `mods\localization\<lang>\<p2|p3>\` (the running game's folder only: P2 and P3 files of the
+//! same name differ). Every game resource (pictures, ini, scripts, fonts, ...) is opened
 //! through `archiver.dll`, by the game and by `ddraw_dll.dll`; the archive container of the game reads only the
 //! `.cpr` archives (P2) or the game folder first (P3). The entries of `archiver.dll` are detoured (the same 5-byte
 //! prologue in the P2 and P3 builds):
@@ -9,6 +10,7 @@
 //! opened from there (container NULL = file on disk); anything else, or a failed open, goes to the original call.
 //! The folder is indexed once at start; a file added later is not seen.
 use pcore::ffi::*;
+use pcore::game::Base;
 use pcore::hook::Plan;
 use std::collections::HashSet;
 use std::path::Path;
@@ -24,7 +26,7 @@ const PROLOGUE_CPR: [u8; 5] = [0x56, 0x8b, 0x74, 0x24, 0x0c];
 const MAX_PATH: usize = 260;
 
 struct Index {
-    /// ANSI `<game>\mods\localization\<lang>\`.
+    /// ANSI `<game>\mods\localization\<lang>\<p2|p3>\`.
     dir: Vec<u8>,
     /// Relative paths of the folder, lower case, `\` separators.
     files: HashSet<Vec<u8>>,
@@ -41,8 +43,8 @@ type MemMapped = unsafe extern "C" fn(u32, *const u8, *mut u32, *mut u32) -> u32
 type CprOpen = unsafe extern "C" fn(*const u8, u32) -> u32;
 
 /// Index the language folder and detour the archiver. Ok = summary for the log.
-pub fn install(lang: &str) -> Result<String, String> {
-    let files = index(lang)?;
+pub fn install(lang: &str, base: Base) -> Result<String, String> {
+    let files = index(lang, base)?;
     let module = unsafe { GetModuleHandleW(pcore::wide("archiver.dll".as_ref()).as_ptr()) };
     if module.is_null() {
         return Err("archiver.dll not loaded".into());
@@ -71,8 +73,8 @@ pub fn install(lang: &str) -> Result<String, String> {
     Ok(format!("{files} file(s), {n} archiver entries{}", if cpr_own { " incl. cpr_OpenFile" } else { "" }))
 }
 
-/// Fill [`INDEX`] from `mods\localization\<lang>\`; a missing folder = no files. Returns the file count.
-fn index(lang: &str) -> Result<usize, String> {
+/// Fill [`INDEX`] from `mods\localization\<lang>\<p2|p3>\`; a missing folder = no files. Returns the file count.
+fn index(lang: &str, base: Base) -> Result<usize, String> {
     let mut buf = [0u8; MAX_PATH];
     let len = unsafe { GetModuleFileNameA(core::ptr::null_mut(), buf.as_mut_ptr(), MAX_PATH as u32) } as usize;
     let exe = &buf[..len.min(MAX_PATH)];
@@ -81,8 +83,10 @@ fn index(lang: &str) -> Result<usize, String> {
     dir.extend_from_slice(b"mods\\localization\\");
     dir.extend_from_slice(lang.as_bytes());
     dir.push(b'\\');
+    dir.extend_from_slice(base.dir().as_bytes());
+    dir.push(b'\\');
     let mut files = HashSet::new();
-    if let Some(root) = pcore::paths::localization_dir(lang) {
+    if let Some(root) = pcore::paths::localization_dir(lang, base) {
         walk(&root, &mut Vec::new(), &mut files);
     }
     let n = files.len();
