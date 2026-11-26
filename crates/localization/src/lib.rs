@@ -2,14 +2,15 @@
 //!
 //! Loaded by `winmm.dll`, `patrician-launcher.exe` or the P3Modding modloader, which call `start`. The language is
 //! `mods\settings.ini` `[localization] lang=<ISO 639-1 code>` (missing or invalid = `en`); its files live in
-//! `mods\localization\<lang>\` and replace the game files of the same name ([`res`]). Language selector
-//! on the main menu ([`menu`]).
+//! `mods\localization\<lang>\` and replace the game files of the same name ([`res`]); in P2 also the font charset and
+//! the texts of the executable ([`exe`]). Language selector on the main menu ([`menu`]).
 
 use pcore::game::Game;
 use pcore::hook::Plan;
 use pcore::{ini::Ini, log, paths, pe};
 use std::sync::atomic::{AtomicBool, Ordering};
 
+mod exe;
 mod menu;
 mod res;
 mod ui;
@@ -34,6 +35,12 @@ pub extern "C" fn start() -> u32 {
     match res::install(&lang) {
         Ok(msg) => log::write(TAG, &format!("resources: on ({msg})")),
         Err(e) => log::write(TAG, &format!("resources: skipped, {e}")),
+    }
+    if game == Some(Game::P2Gog) && lang != DEFAULT_LANG {
+        match paths::localization_dir(&lang).ok_or_else(|| "no game folder".to_string()).and_then(|d| exe::install(&lang, &d)) {
+            Ok(msg) => log::write(TAG, &format!("exe: on ({msg})")),
+            Err(e) => log::write(TAG, &format!("exe: skipped, {e}")),
+        }
     }
     if let Some(base) = game.map(|g| g.base()) {
         let dir = paths::localization_dir(&lang);
