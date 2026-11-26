@@ -1,0 +1,2 @@
+Let us first look at the divisions of the game interface layout. It consists of five parts.
+Towns and the nautical maps are shown here. At the beginning of a game you will always start in your home town, which, in this case, is Lubeck.

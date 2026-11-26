@@ -1,0 +1,1 @@
+Let's now move on to the other buttons in the ship's menu. First of all, there is the crew information. Click the crew button. This once again shows the number of sailors and the amount of their daily pay. As the ship is at anchor, you can dismiss sailors and captain. However, you shouldn't do that now.

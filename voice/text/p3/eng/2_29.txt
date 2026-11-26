@@ -1,0 +1,1 @@
+Now enter Bergen by left clicking on it. Is your ship Viking still selected? If not, search for it in the harbour of Bergen and select it. As you can see, the journey has left its mark: the condition of the ship is no longer 100%. Therefore we have to repair it.

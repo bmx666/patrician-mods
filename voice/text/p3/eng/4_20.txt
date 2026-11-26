@@ -1,0 +1,1 @@
+Note that the production cost of a given item is not the same in every town. In some towns goods can be produced on especially favourable terms, in others less so, and in others no goods at all can be produced. Production costs are correspondingly higher in towns with low production. Please have a look at the enclosed map.

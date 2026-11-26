@@ -1,0 +1,1 @@
+Click the forward button on the button bar using a left click. You will see at a total map of the whole see area, as well as all the ships that are on their way. Apart from that the time runs very quickly. The map remains displayed until a ship has reached its destination or you press a mouse button.

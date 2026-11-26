@@ -1,0 +1,2 @@
+If you click the town gate button, you leave the town and end up on the sea map.
+Instead of the town, the sea map will be displayed. You can as usual shift the clip by using the arrow keys on the keyboard.

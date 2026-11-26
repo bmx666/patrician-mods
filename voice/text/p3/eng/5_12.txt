@@ -1,0 +1,1 @@
+As soon as an enemy ship appears at the side of your ship, you should fire a broadside. Now cross backwards and forwards around the ship and try to sink it by firing broadsides at it. Try to take advantage of the momentum on manoeuvring, and avoid sailing against the wind.

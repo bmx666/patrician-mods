@@ -1,0 +1,2 @@
+Let's look at the button bar and go through them from left to right.
+The first button displays the list of ships. Please click it.

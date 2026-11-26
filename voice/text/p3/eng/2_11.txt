@@ -1,0 +1,1 @@
+As advised, if the ship is still selected, the town in which the ship is placed will be shown centrally. As the ship is at anchor in the port, you cannot see it directly on this map. However, you can see a small banner with a ship and a number next to the town of Lubeck. This is the number of ships that you have in the town.

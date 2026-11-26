@@ -1,0 +1,1 @@
+The menu will only appear if you have a trading office in the town, and a ship has been selected, only then you do have a choice of trading possibilities.

@@ -1,0 +1,2 @@
+Apart from that the display will show how many ships are at anchor in a harbour or waiting for new orders.
+Ships that are at the shipyard for repairs or expansion are not shown, because they cannot be given orders.

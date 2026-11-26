@@ -1,0 +1,1 @@
+Now look at the mini map. It displays all buildings and streets of the town; the harbour and your ship are also visible. There is a button with an arrow on the left next to the map, click on it.

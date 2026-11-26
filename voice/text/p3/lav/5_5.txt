@@ -1,0 +1,2 @@
+Starp citu, bruņas kuģim piešķir arī lielāku izturību.
+Tagad aplūkosim klāja funkcijas un rādījumus. Vispirms redzams ātrums, stāvoklis, apkalpe un ieroču stiprums. Blakus ir poga Uguns.

@@ -1,0 +1,1 @@
+Click onto the population symbol in order to see the population distribution and the satisfaction of the citizens of this town. If arrows are visible behind satisfaction, then they indicate whether the citizens are becoming more, or less satisfied.

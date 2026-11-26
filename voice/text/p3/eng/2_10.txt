@@ -1,0 +1,2 @@
+We will now send the ship to another town. To do that, you have to select a ship. Now click the button, leave town on the button bar above the ship's menu.
+This will display the large sea map.

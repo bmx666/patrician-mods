@@ -1,0 +1,1 @@
+Click the shipyard in the harbour of the town to enter it. At the shipyard, you can repair your ships, place orders for new ships,increase the ship's armourments or change the name of a ship. We are only interested in the button repair ship. Please click on it.

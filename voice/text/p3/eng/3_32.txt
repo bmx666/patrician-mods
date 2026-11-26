@@ -1,0 +1,1 @@
+Itemisation merely serves to help you to trading in large quantities. The max button takes into consideration how much cargo space is still available for goods you are going to purchase. On selling it considers, how many goods on the ship are available. In that way you can sell everything in one go.

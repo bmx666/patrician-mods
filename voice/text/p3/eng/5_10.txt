@@ -1,0 +1,1 @@
+You can change the direction of the ship by right clicking on a spot in the water. You can also press the right mouse key, hold it, and move the mouse at the same time. The arrow on the water will then show you which direction the ship is now sailing in.

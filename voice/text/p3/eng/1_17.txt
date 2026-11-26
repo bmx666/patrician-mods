@@ -1,0 +1,2 @@
+Incidentally, there is a go to button to the left of each ship in the ship-list. If you click on this button, it will go to the spot where the ship is placed. This can be in another town or at sea. Try it out, in order to bring the ship Viking into your field of vision.
+Then close the ship list.

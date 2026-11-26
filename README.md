@@ -97,6 +97,8 @@ The main menu has a language selector at the top left: `<` / `>` step through th
 
 Patrician II: when the language's `scripts\buttons.ini` defines `[Button6]` (72x18), the Undo button of the automatic trading window uses it (room for longer words such as Отмена or Atšaukti), and the "trade with town / office" toggles move apart to make room.
 
+Tutorial voice-over for the translated languages: record or synthesize it yourself, see [voice/README.md](voice/README.md).
+
 ## Apple Silicon / ARM64 (`mods\nosmc.dll`)
 
 The image decoder `AIM.dll` of both games draws sprites with self-modifying code: its blitters rewrite their own instructions and keep counters inside their code pages on every sprite and row. An x86 translator (Rosetta 2 under Wine / CrossOver / Game Porting Toolkit on macOS, Prism on Windows on ARM, FEX or Box86 on Linux) throws its translation of a page away on every such write. `nosmc.dll` moves that data out of the code pages and makes the patched instructions read variables instead, in memory at start; `AIM.dll` on disk is not changed.

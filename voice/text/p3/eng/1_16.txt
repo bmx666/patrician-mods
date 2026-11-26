@@ -1,0 +1,2 @@
+You can see which ships belong to you, what their names are, and where they are at the moment. You only have one ship in this tutorial; therefore the ship's list is displaying one ship only.
+The ship list shows the name, type of ship, status and location, load and the value of the goods on board. You can switch between the display showing crew and armament by using the button below the list.

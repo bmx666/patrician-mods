@@ -1,0 +1,1 @@
+Incidentally, the title bar has changed. As you are no longer in a town, four ship buttons are displayed. You can switch between ships using these buttons. However, there will be differences between anchored and sailing ships, and convoys.

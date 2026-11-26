@@ -1,0 +1,2 @@
+The title bar is placed at the top of the screen. If you are in a town, it will show the following, from left to right: population, the name of the town, the number of your buildings in the town, your money and the date.
+There are also buttons hidden behind the small symbols on the title bar.

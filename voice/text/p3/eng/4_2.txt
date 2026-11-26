@@ -1,0 +1,1 @@
+Each town consist of action houses, dwellings and production facilities. Action houses are buildings where you can do certain things. You already know the dock and the tavern. Other buildings are the church and the municipal building. A Hanse town like Lubeck has 12 action buildings.

@@ -1,0 +1,1 @@
+Now click on this banner to display the ships in more detail. As you can see, the known ship list is opened. It shows all ships being at anchor in the town. Now click the Lydia in the list and note how the selection window displays it.

@@ -1,0 +1,1 @@
+Minikarte rāda visu pilsētas teritoriju. Taisnstūris norāda redzamo apgabalu. Skatu varat mainīt, ar peli pārvietojot taisnstūri.

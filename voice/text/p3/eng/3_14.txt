@@ -1,0 +1,1 @@
+The buy and sell buttons are between town and ship. There is already a price on each button. Buy means, you buy. Sell means, you sell.

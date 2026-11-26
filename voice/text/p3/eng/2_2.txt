@@ -1,0 +1,2 @@
+You are in the town of Lubeck. Move the displayed area to the harbour and select the ship Viking by left clicking on it. The ship will then appear in the lower right selection window.
+Now look at this window in detail.

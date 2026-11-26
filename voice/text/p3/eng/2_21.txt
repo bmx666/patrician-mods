@@ -1,0 +1,2 @@
+With this right click you have instructed the ship to carry out an action, in this case, sailing to a position on the sea map. After a while, the ship becomes visible on the sea map.
+Click the left mouse button on an empty space in the ocean. This cancels all previous selections.

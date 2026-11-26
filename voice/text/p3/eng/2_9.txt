@@ -1,0 +1,2 @@
+Below the captain you can see three values: Trading bonus, travel bonus and naval battle bonus. A captain has the following standing. The older he is, the more experienced he is.
+The other buttons in the ship's menu are not too interesting during the first few hours of the game and are explained in the handbook.

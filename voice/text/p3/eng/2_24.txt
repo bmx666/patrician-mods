@@ -1,0 +1,1 @@
+You can use this button to switch between the sea map or the town map, but only when you are in a town. The nice thing about it, is that you can send your ship to another town without having to leave the town you are in.

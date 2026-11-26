@@ -1,0 +1,2 @@
+Instead of clicking fire, you can also press the space bar on the keyboard or the number 0 on the numbers block.
+Using the Capture or Plunder button you are giving you ship the signal to board the enemy if possible, trying to capture or plunder the enemy vessel.

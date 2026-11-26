@@ -1,0 +1,1 @@
+Now choose trading between town and ship. On the left, you see the goods that the town has available, and on the right, the goods which are on the ship. As we have just started, there aren't any.

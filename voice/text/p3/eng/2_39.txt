@@ -1,0 +1,1 @@
+Select the Building contract button in the shipyard. Now use the book to choose a ship. In the beginning of a new game, there are three ships to choose from. If the shipyard gets orders on a regular basis, its quality improves and it can offer better ships. Select a ship and follow the instructions for construction.

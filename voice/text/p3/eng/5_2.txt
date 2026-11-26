@@ -1,0 +1,1 @@
+If you meet a pirate on the sea map, you will be informed about it and additionally asked whether you want to handle the sea-battle automatically or manually. If you select manually, you will see this sea-battle view.

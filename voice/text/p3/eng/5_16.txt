@@ -1,0 +1,1 @@
+After each sea battle, a summary is shown and you return to the sea map.

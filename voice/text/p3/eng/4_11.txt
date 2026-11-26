@@ -1,0 +1,1 @@
+In the selection window you will now see the building costs, construction time and the  building materials required. These materials will be taken from your trading office if they are available there. If this is not the case, then they will be bought directly from the town.The purchase prices applicable are displayed.

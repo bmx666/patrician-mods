@@ -1,0 +1,2 @@
+You cannot select fortification because you only have access to fortification after you have become Lord Mayor of a town.
+Now select finishing companies and then workshop.

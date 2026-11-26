@@ -1,0 +1,1 @@
+In the line below, the display will first of all show the speed of the ship in knots. Of course, in the habour the speed shown is 0. Next to that you will see the condition of the ship, which, at the moment is 100%, the ship is therefore in tip-top condition.

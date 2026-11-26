@@ -1,0 +1,2 @@
+Et skip blir for øvrig også mer stabilt av panser.
+La oss nå se på dekkets funksjoner og visninger. Først vises fart, tilstand, mannskap og våpenstyrke. Ved siden av er knappen Ild.

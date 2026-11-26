@@ -1,0 +1,1 @@
+Now let us attack the enemy in another way. If you have selected your ship, simply right click onto an enemy. Your ship will now automatically attack and sink him. Make sure that capture is not activated; otherwise your crew will board the enemy ship.

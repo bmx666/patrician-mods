@@ -1,0 +1,1 @@
+Now move the mouse over one of these building plots. You can also use the arrows on the keyboard to get a visible plot. If you move the mouse pointer over a building plot, the workshop lights up. Please left click.

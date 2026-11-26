@@ -1,0 +1,1 @@
+The next button is the fast-forward. If you press it, the running time will be speeded up. Meanwhile, you can follow all your ships on the complete map. The fast-forward ends as soon as you press a mouse button, or one of your ships goes to anchor in a harbour.

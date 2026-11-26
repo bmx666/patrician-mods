@@ -1,0 +1,2 @@
+Information about selected ships is displayed here. Now, let us test it.
+Shift the cursor to the harbour of the town. You will see a ship by the name of Viking. This is your ship. Click on it in order to select it.

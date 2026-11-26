@@ -1,0 +1,1 @@
+If you click the money symbol, a window with the statistics menu will be opened. However, this menu will not be explained in this tutorial. To close a window, either click onto the close button at the bottom right hand corner of the window, or right click.

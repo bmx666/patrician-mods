@@ -1,0 +1,1 @@
+Incidentally, not all goods are measured in loads. Rare goods are measured in barrels; one load takes up the space of 10 barrels. Next to the ship's name you can see that the 15 loads of fish take up the whole cargo space, which is 150 barrels.

@@ -1,0 +1,2 @@
+Through the right click you have given your ship a new destination. The ship will sail to this destination and wait for further instructions.
+So that we do not have to wait for too long for the ship to reach its destination, let's look at the fast forward.

@@ -1,0 +1,1 @@
+Have you noticed how the price of the goods has increased during purchasing? This is because during your purchase the supply in the city has decreased. Note: The smaller the supply, the higher the price. The price falls correspondingly on selling the goods.

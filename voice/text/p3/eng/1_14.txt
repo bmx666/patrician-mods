@@ -1,0 +1,1 @@
+Under that, you will see a list of all the goods on board. Note that there are two units of measurement: load and barrels. One load equals exactly 10 barrels.

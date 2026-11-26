@@ -1,0 +1,2 @@
+The news menu is hidden behind the next button. All the letters you have received are filed here. Click on this button and you will see the news menu, in which various news items have been filed. Click onto one of the topics and then onto news-item, in order to read it.
+Close the news, in the same way as with all other windows by using the close button or with a right click.

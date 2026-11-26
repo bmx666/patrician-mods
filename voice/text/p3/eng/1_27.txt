@@ -1,0 +1,2 @@
+Yet another tip for operating with the mouse:
+You can select objects such as ships and buildings by using the left click. By using a right click you can send the selected ship to another location. Apart from that, the right click is used to close a window in the main view.

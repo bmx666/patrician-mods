@@ -1,0 +1,2 @@
+Apart from that, the ship's speed in knots, the condition of the ship from 0 to 100%, and the crew are displayed here.
+Next to that is the armament strength of the ship.

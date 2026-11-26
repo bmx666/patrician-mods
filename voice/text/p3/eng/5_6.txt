@@ -1,0 +1,1 @@
+Your ship automatically shoots in the enemy's direction with fire. Click on this button now. You will then see how a salvo leaves your ship and lands in the water. Apart from that, you will notice that it takes a while for the ship's weapons to be reloaded.

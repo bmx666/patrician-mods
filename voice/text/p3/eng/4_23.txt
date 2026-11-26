@@ -1,0 +1,1 @@
+Now let us build a living house. For this you need to know that per worker in the town, four citizens on average have to be accommodated in a house as every worker also has a family. If there is not enough accommodation available, the number of workers cannot increase.

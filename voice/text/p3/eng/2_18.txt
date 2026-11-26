@@ -1,0 +1,1 @@
+Now that the ship is on the way, we have got a bit more time to have a closer look at the sea map. Move the map in such a way that Lubeck becomes visible again. While all other towns have a red button, Lubeck has a blue one; showing that Lubeck is your hometown.

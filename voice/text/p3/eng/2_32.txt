@@ -1,0 +1,1 @@
+When you have selected the ship, the selection window will show you how long the estimated repair will take. Of course, this depends on the current ship's status. Now wait until the repair is completed. You can also use the fast-forward button for that.

@@ -1,0 +1,2 @@
+To the right you see the crew and armament of the ship. The figure indicates the number of sailors on board. The star means that there is a captain on board.
+There are large and small balls displayed under the weapons symbol. Only a maximum of five balls can be displayed here, five small balls are equal to one large ball.

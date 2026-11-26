@@ -1,0 +1,3 @@
+Welcome to Patrician 3, the maritime trading simulation set in the period of the Hanseatic League.
+In this introduction, you will learn how to develop from a simple shopkeeper to a travelling merchant.
+You can use the two buttons to the right of this text to move forwards and backwards between each step of this tutorial.

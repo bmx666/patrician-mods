@@ -1,0 +1,1 @@
+Minikaart näitab kogu linna ala. Ristkülik näitab kuvatavat ala. Kuva muutmiseks nihuta ristkülikut hiirega.

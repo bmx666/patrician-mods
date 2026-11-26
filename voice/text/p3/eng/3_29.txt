@@ -1,0 +1,1 @@
+There is also some information in the trading window; observe the difference between purchase and selling price. The bigger the difference, the bigger is the demand of the town.

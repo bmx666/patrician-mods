@@ -1,0 +1,1 @@
+Now select the ship Viking again and close the ship's list. The ship will be displayed in the middle of the screen. Now, drag the sea map to the right and upwards until the town of Riga is displayed. Now do a right click on the red button near Riga, in order to give the ship the destination of Riga.

@@ -1,0 +1,1 @@
+It may occur that a particular building material is neither available in the town nor present in your trading office. In this case, you will have to buy the required raw material from another town before you can construct a building.

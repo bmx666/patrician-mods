@@ -1,0 +1,1 @@
+The selection window now shows the changed status of the ship. Instead of an anchor symbol, you will now see a ship, and Riga as the town of destination. The estimated time of the journey in days is also shown.

@@ -1,0 +1,1 @@
+You can use the last but one button on the news menu to configure the letters-file so that letters can automatically be deleted later on. You can also delete a letter by clicking it and then clicking the delete button on the right of the news menu.

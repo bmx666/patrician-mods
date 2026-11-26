@@ -1,0 +1,1 @@
+As a practice exercise, take on 5 sailors by transferring sailors from the tavern to ship, and clicking the button, hire sailors.

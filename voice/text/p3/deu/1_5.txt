@@ -1,0 +1,1 @@
+Die Minikarte zeigt das gesamte Stadtgebiet. Das Rechteck zeigt den angezeigten Bereich. Ändern Sie die Anzeige, indem Sie das Rechteck mit der Maus verschieben.

@@ -1,0 +1,2 @@
+You can find out how high the percentage of occupancy is of the present housing by clicking on a house.
+Each living house consists of three stages, of which you can only build the first. The later stages are reached as more and more people move into it.

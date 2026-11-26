@@ -1,0 +1,2 @@
+Panssarointi tekee laivasta muuten myös vakaamman.
+Tarkastellaan nyt kannen toimintoja ja näyttöjä. Ensin näytetään nopeus, kunto, miehistö ja aseiden vahvuus. Niiden vieressä on painike Tulta.

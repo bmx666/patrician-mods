@@ -1,0 +1,1 @@
+The large barrel shows the ship's load. As already mentioned, the uppermost figure to the right of the barrel shows the ship's capacity. How much space goods have taken up is indicated underneath. The lowest figure shows how much space isrequired for the crew and the weapons. As there are no goods on board now, the mid-figure is at 0.

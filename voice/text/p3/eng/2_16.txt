@@ -1,0 +1,1 @@
+You may have noticed, that it took a while before the ship became visible at sea. The reason for this is that the ship spends some time in the harbour before appearing on the sea map.

@@ -1,0 +1,1 @@
+Minikartan visar hela stadens område. Rektangeln visar det visade området. Ändra visningen genom att flytta rektangeln med musen.

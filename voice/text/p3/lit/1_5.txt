@@ -1,0 +1,1 @@
+Minižemėlapis rodo visą miesto teritoriją. Stačiakampis rodo matomą sritį. Vaizdą pakeisite pele perkeldami stačiakampį.

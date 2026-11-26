@@ -1,0 +1,2 @@
+The next button on the button bar is the construction menu. You can use this menu to construct buildings in towns where you have a trading office. The trading office is simultaneously the home, office and warehouse of a trader.
+Trading office and building menu will be explained in the chapter after the next.

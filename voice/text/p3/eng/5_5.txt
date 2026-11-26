@@ -1,0 +1,2 @@
+By the way, a ship also gains more stability by adding armour.
+Now let us observe the functions and displays of the deck. At first, speed, condition, crew and weapons strength are shown. Next to that is the button Fire

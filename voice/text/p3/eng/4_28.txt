@@ -1,0 +1,1 @@
+The population of a town consists of: beggars, poor, wealthy and rich people. Each group has its own requirements and consumes certain goods. Wheat, for example, is very important to the poor, whereas wine and meat is more important to the rich.

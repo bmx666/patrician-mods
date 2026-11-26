@@ -1,0 +1,1 @@
+Incidentally, you can get information about facilities that you did not build yourself. The mini map show buildings belonging to you and those belonging to someone else. Your buildings are coloured blue, those of others traders are white, and those of the town are grey.

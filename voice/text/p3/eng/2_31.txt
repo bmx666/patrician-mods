@@ -1,0 +1,1 @@
+Using the book, you can switch between all ships at anchor and those in need of repair. Under the book you can see the cost of repair and underneath that, the button to place the order for repairs. Click this button and then leave the shipyard.

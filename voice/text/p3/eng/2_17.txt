@@ -1,0 +1,1 @@
+Incidentally, as soon as the ship is on the sea map, you will also see it on the mini map. Your ships have blue squares; selected ones have flashing squares. Sometimes also white squares are visible. These are ships of your competitors being within visible range of one of your ships.
