@@ -1,7 +1,7 @@
 //! Window layouts for translated labels longer than the English ones.
+use crate::pack::Pack;
 use pcore::game::Base;
 use pcore::hook::Plan;
-use std::path::Path;
 
 /// Patrician II auto-trade window (Autotradeparchment, layout 406bea), bottom row:
 /// - Undo (+3D0h, created 404339 with buttons.ini `Button[61DC36h]` = Button2, 48x18): translations (Отмена,
@@ -10,12 +10,12 @@ use std::path::Path;
 /// - "trade with office" toggle (+590h) + label: x = Undo x + 1Eh -> + 46h (40 px right);
 /// - "trade with town" toggle (+4B8h) + label: x = PrevCityPos x -> x - 20 (y - 1Eh as before; esi dead after).
 ///
-/// Needs `[Button6]` in `<lang dir>\scripts\buttons.ini` (the game would draw no Undo button without it).
-pub fn trade_row(p: &mut Plan, base: Base, lang_dir: Option<&Path>) -> Result<(), String> {
+/// Needs `[Button6]` in `scripts\buttons.ini` of the language (the game would draw no Undo button without it).
+pub fn trade_row(p: &mut Plan, base: Base, pack: &Pack) -> Result<(), String> {
     if base != Base::P2 {
         return Err("Patrician II only".into());
     }
-    if !has_button6(lang_dir) {
+    if !has_button6(pack) {
         return Err("no [Button6] in scripts\\buttons.ini of the language".into());
     }
     // mov al,[61DC36h] -> mov al,6
@@ -37,8 +37,8 @@ pub fn trade_row(p: &mut Plan, base: Base, lang_dir: Option<&Path>) -> Result<()
     )
 }
 
-fn has_button6(lang_dir: Option<&Path>) -> bool {
-    let Some(t) = lang_dir.and_then(|d| std::fs::read(d.join("scripts").join("buttons.ini")).ok()) else {
+fn has_button6(pack: &Pack) -> bool {
+    let Some(t) = pack.read("scripts\\buttons.ini") else {
         return false;
     };
     t.windows(9).any(|w| w.eq_ignore_ascii_case(b"[button6]"))

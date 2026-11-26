@@ -1,0 +1,15 @@
+[package]
+name = "cprtool"
+description = "Packs and unpacks the language archives mods\\localization\\<lang>.cpr (host tool, run by tools/package.sh)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "cprtool"
+path = "src/main.rs"
+
+[dependencies]
+cpr.workspace = true

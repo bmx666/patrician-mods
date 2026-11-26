@@ -1,8 +1,9 @@
 //! `mods\localization.dll`: language of Patrician II and III.
 //!
 //! Loaded by `winmm.dll`, `patrician-launcher.exe` or the P3Modding modloader, which call `start`. The language is
-//! `mods\settings.ini` `[localization] lang=<ISO 639-1 code>` (missing or invalid = `en`); its files live in
-//! `mods\localization\<lang>\<p2|p3>\` (one folder per game) and replace the game files of the same name ([`res`]);
+//! `mods\settings.ini` `[localization] lang=<ISO 639-1 code>` (missing or invalid = `en`); its files ([`pack`]: the
+//! archive `mods\localization\<lang>.cpr`, entries `p2\...` / `p3\...`, and the loose folder
+//! `mods\localization\<lang>\<p2|p3>\`, which wins) replace the game files of the same name ([`res`]);
 //! in P2 GOG and P3 GOG also the font charset, the texts of the executable ([`exe`], in P3 with the tool tips) and
 //! their grammar ([`grammar`]). Language selector on the main menu ([`menu`]).
 
@@ -14,6 +15,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 mod exe;
 mod grammar;
 mod menu;
+mod pack;
 mod res;
 mod ui;
 
@@ -38,16 +40,15 @@ pub extern "C" fn start() -> u32 {
         log::write(TAG, "skipped, unknown executable");
         return 0;
     };
-    match res::install(&lang, base) {
+    let pack = pack::Pack::open(&lang, base);
+    match res::install(&lang, base, &pack) {
         Ok(msg) => log::write(TAG, &format!("resources: on ({msg})")),
         Err(e) => log::write(TAG, &format!("resources: skipped, {e}")),
     }
-    let dir = paths::localization_dir(&lang, base);
     // the Steam executable decrypts its code only after start-up
     if matches!(game, Some(Game::P2Gog | Game::P3Gog)) && lang != DEFAULT_LANG {
         let forms = grammar(&lang, base);
-        let folder = dir.as_deref().ok_or_else(|| "no game folder".to_string());
-        match folder.and_then(|d| exe::install(&lang, d, forms, base)) {
+        match exe::install(&lang, &pack, forms, base) {
             Ok(msg) => log::write(TAG, &format!("exe: on ({msg})")),
             Err(e) => log::write(TAG, &format!("exe: skipped, {e}")),
         }
@@ -60,7 +61,7 @@ pub extern "C" fn start() -> u32 {
         }
     }
     let mut plan = Plan::new();
-    match ui::trade_row(&mut plan, base, dir.as_deref()).and_then(|()| plan.commit()) {
+    match ui::trade_row(&mut plan, base, &pack).and_then(|()| plan.commit()) {
         Ok(n) => log::write(TAG, &format!("trade_row: on (auto-trade Undo 72 px, toggles moved, {n} patches)")),
         Err(e) => log::write(TAG, &format!("trade_row: skipped, {e}")),
     }

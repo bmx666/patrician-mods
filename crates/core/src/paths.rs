@@ -17,6 +17,11 @@ pub fn localization_dir(lang: &str, base: Base) -> Option<PathBuf> {
     mods_dir().map(|d| d.join("localization").join(lang).join(base.dir()))
 }
 
+/// `<game>\mods\localization\<lang>.cpr`: archive of one language, both games (entries `p2\...`, `p3\...`).
+pub fn localization_archive(lang: &str) -> Option<PathBuf> {
+    mods_dir().map(|d| d.join("localization").join(format!("{lang}.cpr")))
+}
+
 pub fn settings() -> Option<PathBuf> {
     mods_dir().map(|d| d.join("settings.ini"))
 }

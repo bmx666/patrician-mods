@@ -1,19 +1,21 @@
-//! Language files from `mods\localization\<lang>\<p2|p3>\` (the running game's folder only: P2 and P3 files of the
-//! same name differ). Every game resource (pictures, ini, scripts, fonts, ...) is opened
-//! through `archiver.dll`, by the game and by `ddraw_dll.dll`; the archive container of the game reads only the
-//! `.cpr` archives (P2) or the game folder first (P3). The entries of `archiver.dll` are detoured (the same 5-byte
+//! Language files of the running game ([`Pack`]: the loose folder `mods\localization\<lang>\<p2|p3>\`, else the
+//! archive `mods\localization\<lang>.cpr`; P2 and P3 files of the same name differ). Every game resource (pictures,
+//! ini, scripts, fonts, ...) is opened through `archiver.dll`, by the game and by `ddraw_dll.dll`; the archive
+//! container of the game reads only the `.cpr` archives (P2) or the game folder first (P3). The entries of `archiver.dll` are detoured (the same 5-byte
 //! prologue in the P2 and P3 builds):
 //! - `arc_CreateFile(container, name)`, `arc_CreateMemMapped(container, name, &ptr, &len)`
 //! - `cpr_OpenFile(name, container)`: own body in the P3 build (prologue checked); in P2 it calls `arc_CreateFile`
 //!
-//! A relative `name` (`.\` / `./` prefixes dropped, `/` = `\`, case ignored) that exists in the language folder is
-//! opened from there (container NULL = file on disk); anything else, or a failed open, goes to the original call.
-//! The folder is indexed once at start; a file added later is not seen.
+//! A relative `name` (`.\` / `./` prefixes dropped, `/` = `\`, case ignored) of the language is opened from the loose
+//! folder (container NULL = file on disk) or from the archive: `localization.dll` opens it as a container of its own
+//! (`arc_CreateContainerEx(path, 0)` = archives only, no disk, + `arc_AppendArchive`) and asks it for the entry
+//! `<p2|p3>\<name>`. Anything else, or a failed open, goes to the original call. Both are indexed once at start; a
+//! file added later is not seen.
+use crate::pack::Pack;
 use pcore::ffi::*;
 use pcore::game::Base;
 use pcore::hook::Plan;
-use std::collections::HashSet;
-use std::path::Path;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::RwLock;
 
@@ -28,8 +30,16 @@ const MAX_PATH: usize = 260;
 struct Index {
     /// ANSI `<game>\mods\localization\<lang>\<p2|p3>\`.
     dir: Vec<u8>,
-    /// Relative paths of the folder, lower case, `\` separators.
-    files: HashSet<Vec<u8>>,
+    /// Keys of the loose folder.
+    loose: HashSet<String>,
+    /// Keys of the archive -> entry name (`<p2|p3>\...`) in [`CONTAINER`].
+    packed: HashMap<String, Vec<u8>>,
+}
+
+/// Where a language file is opened from; the path or entry name is in the buffer of [`redirect`].
+enum Src {
+    Disk,
+    Archive,
 }
 
 static INDEX: RwLock<Option<Index>> = RwLock::new(None);
@@ -37,14 +47,18 @@ static INDEX: RwLock<Option<Index>> = RwLock::new(None);
 static CREATE_FILE: AtomicU32 = AtomicU32::new(0);
 static MEM_MAPPED: AtomicU32 = AtomicU32::new(0);
 static CPR_OPEN: AtomicU32 = AtomicU32::new(0);
+/// Archiver container of the language archive.
+static CONTAINER: AtomicU32 = AtomicU32::new(0);
 
 type CreateFile = unsafe extern "C" fn(u32, *const u8) -> u32;
 type MemMapped = unsafe extern "C" fn(u32, *const u8, *mut u32, *mut u32) -> u32;
 type CprOpen = unsafe extern "C" fn(*const u8, u32) -> u32;
+type CreateContainerEx = unsafe extern "C" fn(*const u8, u32) -> u32;
+type AppendArchive = unsafe extern "C" fn(u32, *const u8) -> u32;
+type ReleaseContainer = unsafe extern "C" fn(u32);
 
-/// Index the language folder and detour the archiver. Ok = summary for the log.
-pub fn install(lang: &str, base: Base) -> Result<String, String> {
-    let files = index(lang, base)?;
+/// Index the language files, open the archive and detour the archiver. Ok = summary for the log.
+pub fn install(lang: &str, base: Base, pack: &Pack) -> Result<String, String> {
     let module = unsafe { GetModuleHandleW(pcore::wide("archiver.dll".as_ref()).as_ptr()) };
     if module.is_null() {
         return Err("archiver.dll not loaded".into());
@@ -58,6 +72,28 @@ pub fn install(lang: &str, base: Base) -> Result<String, String> {
             Ok(at)
         }
     };
+    let game = game_folder()?;
+    let mut dir = game.clone();
+    dir.extend_from_slice(format!("mods\\localization\\{lang}\\{}\\", base.dir()).as_bytes());
+    let loose: HashSet<String> = pack.loose().map(str::to_string).collect();
+    let mut packed: HashMap<String, Vec<u8>> = pack.packed().map(|(k, n)| (k.to_string(), n.to_vec())).collect();
+    let mut archive = match &pack.error {
+        Some(e) => format!(", archive skipped ({e})"),
+        None => String::new(),
+    };
+    if pack.archive().is_some() {
+        let mut path = game;
+        path.extend_from_slice(format!("mods\\localization\\{lang}.cpr\0").as_bytes());
+        match open_container(&path, &export) {
+            Ok(c) => CONTAINER.store(c, Ordering::Relaxed),
+            Err(e) => {
+                packed.clear();
+                archive = format!(", archive skipped ({e})");
+            }
+        }
+    }
+    let (n_loose, n_packed) = (loose.len(), packed.len());
+    *INDEX.write().map_err(|_| "index lock")? = Some(Index { dir, loose, packed });
     let mut p = Plan::new();
     let t = p.detour(export("arc_CreateFile")?, &PROLOGUE, create_file as *const () as usize as u32)?;
     CREATE_FILE.store(t, Ordering::Relaxed);
@@ -70,80 +106,95 @@ pub fn install(lang: &str, base: Base) -> Result<String, String> {
         CPR_OPEN.store(t, Ordering::Relaxed);
     }
     let n = p.commit()?;
-    Ok(format!("{files} file(s), {n} archiver entries{}", if cpr_own { " incl. cpr_OpenFile" } else { "" }))
+    Ok(format!(
+        "{n_loose} loose file(s), {n_packed} archived file(s){archive}, {n} archiver entries{}",
+        if cpr_own { " incl. cpr_OpenFile" } else { "" }
+    ))
 }
 
-/// Fill [`INDEX`] from `mods\localization\<lang>\<p2|p3>\`; a missing folder = no files. Returns the file count.
-fn index(lang: &str, base: Base) -> Result<usize, String> {
+/// ANSI game folder with the trailing `\`.
+fn game_folder() -> Result<Vec<u8>, String> {
     let mut buf = [0u8; MAX_PATH];
     let len = unsafe { GetModuleFileNameA(core::ptr::null_mut(), buf.as_mut_ptr(), MAX_PATH as u32) } as usize;
     let exe = &buf[..len.min(MAX_PATH)];
-    let game = exe.iter().rposition(|&c| c == b'\\').map(|i| &exe[..=i]).ok_or("no game folder")?;
-    let mut dir = game.to_vec();
-    dir.extend_from_slice(b"mods\\localization\\");
-    dir.extend_from_slice(lang.as_bytes());
-    dir.push(b'\\');
-    dir.extend_from_slice(base.dir().as_bytes());
-    dir.push(b'\\');
-    let mut files = HashSet::new();
-    if let Some(root) = pcore::paths::localization_dir(lang, base) {
-        walk(&root, &mut Vec::new(), &mut files);
-    }
-    let n = files.len();
-    *INDEX.write().map_err(|_| "index lock")? = Some(Index { dir, files });
-    Ok(n)
+    exe.iter().rposition(|&c| c == b'\\').map(|i| exe[..=i].to_vec()).ok_or_else(|| "no game folder".into())
 }
 
-fn walk(dir: &Path, rel: &mut Vec<u8>, out: &mut HashSet<Vec<u8>>) {
-    let Ok(rd) = std::fs::read_dir(dir) else { return };
-    for e in rd.flatten() {
-        let name = e.file_name().to_string_lossy().to_ascii_lowercase();
-        let keep = rel.len();
-        if !rel.is_empty() {
-            rel.push(b'\\');
+/// Container with only the archive at `path` (ANSI, NUL-terminated).
+fn open_container(path: &[u8], export: &dyn Fn(&str) -> Result<u32, String>) -> Result<u32, String> {
+    if path.len() > MAX_PATH {
+        return Err("path too long".into());
+    }
+    unsafe {
+        let create: CreateContainerEx = core::mem::transmute(export("arc_CreateContainerEx")? as usize);
+        let append: AppendArchive = core::mem::transmute(export("arc_AppendArchive")? as usize);
+        let release: ReleaseContainer = core::mem::transmute(export("arc_ReleaseContainer")? as usize);
+        let c = create(path.as_ptr(), 0);
+        if c == 0 {
+            return Err("arc_CreateContainerEx failed".into());
         }
-        rel.extend_from_slice(name.as_bytes());
-        match e.file_type() {
-            Ok(t) if t.is_dir() => walk(&e.path(), rel, out),
-            Ok(_) => {
-                out.insert(rel.clone());
-            }
-            Err(_) => {}
+        if append(c, path.as_ptr()) == 0 {
+            release(c);
+            return Err("archiver.dll did not open it".into());
         }
-        rel.truncate(keep);
+        Ok(c)
     }
 }
 
-/// Full path of `name` in the language folder, NUL-terminated in `out`, when the folder has it.
-unsafe fn redirect(name: *const u8, out: &mut [u8; MAX_PATH]) -> bool {
+/// Source of `name` when the language has it; the full path (disk) or the entry name (archive), NUL-terminated,
+/// in `out`.
+unsafe fn redirect(name: *const u8, out: &mut [u8; MAX_PATH]) -> Option<Src> {
     if name.is_null() {
-        return false;
+        return None;
     }
     let mut s = core::ffi::CStr::from_ptr(name.cast()).to_bytes();
     while s.starts_with(b".\\") || s.starts_with(b"./") {
         s = &s[2..];
     }
     if s.is_empty() || s[0] == b'\\' || s[0] == b'/' || s.contains(&b':') {
-        return false;
+        return None;
     }
-    let key: Vec<u8> = s.iter().map(|&c| if c == b'/' { b'\\' } else { c.to_ascii_lowercase() }).collect();
-    let Ok(guard) = INDEX.read() else { return false };
-    let Some(ix) = guard.as_ref() else { return false };
-    let len = ix.dir.len() + key.len();
-    if len >= MAX_PATH || !ix.files.contains(&key) {
-        return false;
+    // ANSI bytes, read as Latin-1 (`ü` = 0xFC, as the archive entries and the folder keys).
+    let raw: Vec<u8> = s.iter().map(|&c| if c == b'/' { b'\\' } else { c.to_ascii_lowercase() }).collect();
+    let key: String = raw.iter().map(|&c| c as char).collect();
+    let key = key.as_str();
+    let guard = INDEX.read().ok()?;
+    let ix = guard.as_ref()?;
+    let put = |out: &mut [u8; MAX_PATH], parts: &[&[u8]]| {
+        let len: usize = parts.iter().map(|p| p.len()).sum();
+        if len >= MAX_PATH {
+            return false;
+        }
+        let mut at = 0;
+        for p in parts {
+            out[at..at + p.len()].copy_from_slice(p);
+            at += p.len();
+        }
+        out[at] = 0;
+        true
+    };
+    if ix.loose.contains(key) && put(out, &[ix.dir.as_slice(), raw.as_slice()]) {
+        return Some(Src::Disk);
     }
-    out[..ix.dir.len()].copy_from_slice(&ix.dir);
-    out[ix.dir.len()..len].copy_from_slice(&key);
-    out[len] = 0;
-    true
+    match ix.packed.get(key) {
+        Some(entry) if put(out, &[entry.as_slice()]) => Some(Src::Archive),
+        _ => None,
+    }
+}
+
+/// Container to pass for a redirected `src`.
+fn container(src: Src) -> u32 {
+    match src {
+        Src::Disk => 0,
+        Src::Archive => CONTAINER.load(Ordering::Relaxed),
+    }
 }
 
 unsafe extern "C" fn create_file(container: u32, name: *const u8) -> u32 {
     let orig: CreateFile = core::mem::transmute(CREATE_FILE.load(Ordering::Relaxed) as usize);
     let mut path = [0u8; MAX_PATH];
-    if redirect(name, &mut path) {
-        let f = orig(0, path.as_ptr());
+    if let Some(src) = redirect(name, &mut path) {
+        let f = orig(self::container(src), path.as_ptr());
         if f != 0 {
             return f;
         }
@@ -154,8 +205,8 @@ unsafe extern "C" fn create_file(container: u32, name: *const u8) -> u32 {
 unsafe extern "C" fn mem_mapped(container: u32, name: *const u8, ptr: *mut u32, len: *mut u32) -> u32 {
     let orig: MemMapped = core::mem::transmute(MEM_MAPPED.load(Ordering::Relaxed) as usize);
     let mut path = [0u8; MAX_PATH];
-    if redirect(name, &mut path) {
-        let m = orig(0, path.as_ptr(), ptr, len);
+    if let Some(src) = redirect(name, &mut path) {
+        let m = orig(self::container(src), path.as_ptr(), ptr, len);
         if m != 0 {
             return m;
         }
@@ -166,8 +217,8 @@ unsafe extern "C" fn mem_mapped(container: u32, name: *const u8, ptr: *mut u32, 
 unsafe extern "C" fn cpr_open(name: *const u8, container: u32) -> u32 {
     let orig: CprOpen = core::mem::transmute(CPR_OPEN.load(Ordering::Relaxed) as usize);
     let mut path = [0u8; MAX_PATH];
-    if redirect(name, &mut path) {
-        let f = orig(path.as_ptr(), 0);
+    if let Some(src) = redirect(name, &mut path) {
+        let f = orig(path.as_ptr(), self::container(src));
         if f != 0 {
             return f;
         }

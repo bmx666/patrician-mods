@@ -1,7 +1,7 @@
 //! Texts inside `Patrician 2.exe` (GOG) and `Patrician3.exe` (GOG 1.1) (port of patrician2 / patrician3
-//! `tools/exepatch.js` steps 1 / 2 / 2n, applied in memory at start): `mods\localization\<lang>\<p2|p3>\exe\`
+//! `tools/exepatch.js` steps 1 / 2 / 2n, applied in memory at start): `exe\` of the language ([`Pack`])
 //! - `charset.bin`: font charset (byte of the language codepage per glyph cell, no NUL), matching the `.aim` fonts of
-//!   the language folder. The game keeps the charset pointer next to every static copy of the original charset
+//!   the language. The game keeps the charset pointer next to every static copy of the original charset
 //!   string (one per module: P2 128 bytes, P3 118 bytes and 97 copies, then an aligned pointer to it); all of them
 //!   are redirected.
 //! - `*.tsv`: `<file offset hex>\t<english>\t<translation>` (`\n \t \r \\` escaped, `""` = empty, `#` comment). The
@@ -18,12 +18,12 @@
 //!   checked against the resource of the executable and served by [`tooltips`].
 //! UTF-8 text is encoded with the language codepage (1251 `ru`, 1257 `lt` `lv`, else 1252); a line with a character
 //! outside it or with other `%` specifiers than the English text is skipped (counted in the log).
+use crate::pack::Pack;
 use pcore::ffi::*;
 use pcore::game::Base;
 use pcore::hook::{Ctx, Ins, Plan};
 use pcore::mem;
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::OnceLock;
 
@@ -246,23 +246,19 @@ fn resource_string(id: u32) -> Option<String> {
     (n > 0).then(|| String::from_utf16_lossy(&buf[..n as usize]))
 }
 
-/// Translations of `dir\*.tsv` (sorted by name); resource rows (`r<id>`) go to `res`.
+/// Translations of `exe\*.tsv` (sorted by name); resource rows (`r<id>`) go to `res`.
 fn read_tsv(
-    dir: &Path,
+    pack: &Pack,
     rev: &HashMap<u16, u8>,
     forms: bool,
     lay: &Layout,
     res: &mut HashMap<u32, Vec<u8>>,
     n: &mut Count,
 ) -> Vec<Line> {
-    let mut files: Vec<_> = std::fs::read_dir(dir)
-        .map(|rd| rd.flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x.eq_ignore_ascii_case("tsv"))).collect())
-        .unwrap_or_default();
-    files.sort();
     let mut out = Vec::new();
     let mut seen = HashSet::new();
-    for f in files {
-        let Ok(text) = std::fs::read_to_string(&f) else { continue };
+    for f in pack.list("exe", "tsv") {
+        let Some(text) = pack.read(&f).and_then(|b| String::from_utf8(b).ok()) else { continue };
         for line in text.lines() {
             if line.trim().is_empty() || line.starts_with('#') {
                 continue;
@@ -411,11 +407,10 @@ fn install_charset(img: &Image, cs: &[u8], lay: &Layout) -> Result<usize, String
     }
 }
 
-/// Apply `<lang dir>\exe\` for `base`. Ok = summary for the log.
-pub fn install(lang: &str, dir: &Path, forms: bool, base: Base) -> Result<String, String> {
+/// Apply `exe\` of the language for `base`. Ok = summary for the log.
+pub fn install(lang: &str, pack: &Pack, forms: bool, base: Base) -> Result<String, String> {
     let lay = layout(base);
-    let exe = dir.join("exe");
-    let cs = std::fs::read(exe.join("charset.bin")).map_err(|_| "no exe\\charset.bin".to_string())?;
+    let cs = pack.read("exe\\charset.bin").ok_or("no exe\\charset.bin")?;
     if cs.is_empty() || cs.len() > 255 || cs.contains(&0) {
         return Err("exe\\charset.bin: 1..255 non-zero bytes expected".into());
     }
@@ -423,7 +418,7 @@ pub fn install(lang: &str, dir: &Path, forms: bool, base: Base) -> Result<String
     let rev = reverse_codepage(codepage(lang));
     let mut n = Count::default();
     let mut res = HashMap::new();
-    let lines = read_tsv(&exe, &rev, forms, lay, &mut res, &mut n);
+    let lines = read_tsv(pack, &rev, forms, lay, &mut res, &mut n);
     // check against the untouched image first; refs of the start and of the bytes after each text
     let (lo, hi) = (img.rdata.va, img.data.va + img.data.size);
     let lines: Vec<Line> = lines

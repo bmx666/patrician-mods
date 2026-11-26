@@ -1,0 +1,11 @@
+[package]
+name = "cpr"
+description = "Ascaron archive V0.9 (.cpr) of Patrician II / III: directory reader and writer."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[lib]
+path = "src/lib.rs"

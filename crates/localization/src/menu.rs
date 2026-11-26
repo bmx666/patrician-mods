@@ -2,9 +2,10 @@
 //! the flag. The arrows cycle the flags of the installed languages (display only); the check button (grey when the
 //! shown flag is the running language) writes `[localization] lang` to `mods\settings.ini` and restarts the game.
 //!
-//! - languages: `en` (original files) + every two-letter folder of `mods\localization\` with a known flag and a folder
-//!   of the running game (`p2` / `p3`) inside, in the order GB DE DK NO SE FI EE LV LT RU; shown also with `en` alone
-//!   (arrows stay on GB, check button grey)
+//! - languages: `en` (original files) + every two-letter code of `mods\localization\` (archive `<code>.cpr` or folder
+//!   `<code>\`) with a known flag and files of the running game (archive entries `p2\` / `p3\` or the folder
+//!   `<code>\<p2|p3>\`), in the order GB DE DK NO SE FI EE LV LT RU; shown also with `en` alone (arrows stay on GB,
+//!   check button grey)
 //! - addresses per game in [`P2`] / [`P3`]; below P2 (P3)
 //! - main menu screen: vtable 61C8F8 (66CCF8), draw vt+9Ch 42BC20 (42F280, absolute 800x600 coordinates), update
 //!   vt+12Ch 42BE90 (42F4F0; returns -5 = quit, like the "Exit" item at 42C315 (42F955))
@@ -162,16 +163,22 @@ pub fn selector(p: &mut Plan, base: Base, lang: &str) -> Result<String, String> 
     };
     let mut codes = vec!["en".to_string()];
     let dir = paths::mods_dir().ok_or("no mods folder")?.join("localization");
+    let mut seen = vec!["en".to_string()];
     if let Ok(rd) = std::fs::read_dir(&dir) {
         for e in rd.flatten() {
-            let name = e.file_name().to_string_lossy().to_ascii_lowercase();
-            let game_dir = e.path().join(base.dir());
-            if name.len() != 2 || !name.bytes().all(|c| c.is_ascii_alphabetic()) || !game_dir.is_dir() {
+            let file = e.file_name().to_string_lossy().to_ascii_lowercase();
+            let name = file.strip_suffix(".cpr").unwrap_or(&file).to_string();
+            if name.len() != 2
+                || !name.bytes().all(|c| c.is_ascii_alphabetic())
+                || seen.contains(&name)
+                || !crate::pack::has_game(&name, base)
+            {
                 continue;
             }
+            seen.push(name.clone());
             if flag_of(&name).is_none() {
                 log::write(crate::TAG, &format!("menu: no flag for {name}, not in the selector"));
-            } else if !codes.contains(&name) {
+            } else {
                 codes.push(name);
             }
         }

@@ -11,7 +11,7 @@ Mod loader and quality-of-life mod for **Patrician II** (GOG) and **Patrician II
 | `winmm.dll` | Loads the mods when the game starts. Windows loads it automatically from the game folder. |
 | `patrician-launcher.exe` | Alternative way to start the game with the mods, without `winmm.dll` (for Wine / macOS). |
 | `mods\qol.dll` | Quality-of-life features and fixes of original bugs (see below). |
-| `mods\localization.dll` | Language files from `mods\localization\<lang>\<game>\` (see below). |
+| `mods\localization.dll` | Language files from `mods\localization\<lang>.cpr` (see below). |
 | `mods\nosmc.dll` | Faster drawing on Apple Silicon and other ARM64 hosts (see below). |
 | `mods\settings.ini` | Settings; every feature can be switched off. |
 | `Win32\Mp3dec.asi` | MP3 decoder of the game's sound system, replaces the original (see below). |
@@ -91,9 +91,11 @@ The language is set in `mods\settings.ini`:
 lang=en         ; two-letter ISO 639-1 code; missing = en
 ```
 
-Files in `mods\localization\<lang>\<game>\` replace the game files of the same name and relative path, for every file the game reads from its archives (pictures, ini, scripts, fonts). `<game>` is `p2` for Patrician II and `p3` for Patrician III; each game reads only its own folder. Example: `mods\localization\ru\p2\scripts\buttons.ini` replaces `scripts\buttons.ini` of Patrician II. Names are not case-sensitive. The folder is read once when the game starts. To get the original game back, delete the `mods` folder.
+The files of a language replace the game files of the same name and relative path, for every file the game reads from its archives (pictures, ini, scripts, fonts). They come in one archive per language, `mods\localization\<lang>.cpr`, which holds both games: entries `p2\...` for Patrician II and `p3\...` for Patrician III; each game reads only its own entries. Example: the entry `p2\scripts\buttons.ini` of `mods\localization\ru.cpr` replaces `scripts\buttons.ini` of Patrician II. A loose file in `mods\localization\<lang>\<game>\` (`<game>` = `p2` or `p3`) wins over the archive entry of the same name, e.g. `mods\localization\ru\p2\scripts\buttons.ini`; the tutorial voice-over lives there too. Names are not case-sensitive. The archive and the folder are read once when the game starts. To get the original game back, delete the `mods` folder.
 
-The main menu has a language selector at the top left: `<` / `>` step through the flags of `en` and every language folder in `mods\localization\` that has a folder of the running game (GB, DE, DK, NO, SE, FI, EE, LV, LT, RU; a folder without a known flag is listed in the log only), the check button below the flag writes `lang` to `mods\settings.ini` and restarts the game (grey = the running language). After `patrician-launcher.exe` the game restarts through the launcher.
+`cprtool` (built from `crates/cprtool`) unpacks and packs the archives: `cprtool unpack ru.cpr ru` writes `ru\p2\...` and `ru\p3\...`; `cprtool pack ru.cpr ru --skip p2/musik --skip p3/musik` packs the folder again (names in lower case, equal files stored once, voice-over left out).
+
+The main menu has a language selector at the top left: `<` / `>` step through the flags of `en` and every language in `mods\localization\` (archive or folder) that has files of the running game (GB, DE, DK, NO, SE, FI, EE, LV, LT, RU; a language without a known flag is listed in the log only), the check button below the flag writes `lang` to `mods\settings.ini` and restarts the game (grey = the running language). After `patrician-launcher.exe` the game restarts through the launcher.
 
 Texts built into the executable (menus, messages, names; in Patrician III also the tool tips) come from the language's `exe\*.tsv`, with the font charset from `exe\charset.bin`. Hooks fit the grammar of the translation: forms that depend on a number, adjectives by gender, a capital letter for a name at the start of a sentence, and the decorated initial letters (drop caps) of national alphabets. This needs the GOG executable of either game; Patrician III Steam gets the replaced files only. With `lang=en` the executable is left as is. Every patched place is checked against the original bytes first; a feature whose bytes differ is skipped and written to `mods\loader.log`.
 
@@ -155,6 +157,8 @@ sh tools/package.sh          # dist/patrician-mods-<version>.zip
 | `crates/launcher` | `patrician-launcher.exe` |
 | `crates/qol` | `qol.dll` |
 | `crates/localization` | `localization.dll` |
+| `crates/cpr` | shared: Ascaron archive V0.9 (`.cpr`) reader and writer |
+| `crates/cprtool` | `cprtool`: packs / unpacks the language archives (host tool, run by `tools/package.sh`) |
 | `crates/nosmc` | `nosmc.dll` (x86 decoder: [iced-x86](https://github.com/icedland/iced), MIT) |
 | `crates/asi` | shared: Miles ASI codec registration and streaming |
 | `crates/asi-mp3` | `mp3dec.dll` → `Win32\Mp3dec.asi` (minimp3, C, CC0) |

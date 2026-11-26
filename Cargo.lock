@@ -34,6 +34,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "cpr"
+version = "0.1.0"
+
+[[package]]
+name = "cprtool"
+version = "0.1.0"
+dependencies = [
+ "cpr",
+]
+
+[[package]]
 name = "find-msvc-tools"
 version = "0.1.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -64,6 +75,7 @@ checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
 name = "localization"
 version = "0.1.0"
 dependencies = [
+ "cpr",
  "pcore",
 ]
 
