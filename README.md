@@ -95,6 +95,8 @@ Files in `mods\localization\<lang>\<game>\` replace the game files of the same n
 
 The main menu has a language selector at the top left: `<` / `>` step through the flags of `en` and every language folder in `mods\localization\` that has a folder of the running game (GB, DE, DK, NO, SE, FI, EE, LV, LT, RU; a folder without a known flag is listed in the log only), the check button below the flag writes `lang` to `mods\settings.ini` and restarts the game (grey = the running language). After `patrician-launcher.exe` the game restarts through the launcher.
 
+Texts built into the executable (menus, messages, names; in Patrician III also the tool tips) come from the language's `exe\*.tsv`, with the font charset from `exe\charset.bin`. Hooks fit the grammar of the translation: forms that depend on a number, adjectives by gender, a capital letter for a name at the start of a sentence, and the decorated initial letters (drop caps) of national alphabets. This needs the GOG executable of either game; Patrician III Steam gets the replaced files only. With `lang=en` the executable is left as is. Every patched place is checked against the original bytes first; a feature whose bytes differ is skipped and written to `mods\loader.log`.
+
 Patrician II: when the language's `scripts\buttons.ini` defines `[Button6]` (72x18), the Undo button of the automatic trading window uses it (room for longer words such as Отмена or Atšaukti), and the "trade with town / office" toggles move apart to make room.
 
 Tutorial voice-over for the translated languages: record or synthesize it yourself, see [voice/README.md](voice/README.md).
@@ -133,7 +135,7 @@ enabled=auto    ; see Apple Silicon / ARM64 above
 
 ## Log
 
-`mods\loader.log` is rewritten at every start. It lists the detected game, every loaded mod and, for `qol.dll`, every feature as `on` or `skipped` with the reason.
+`mods\loader.log` is rewritten at every start. It lists the detected game, every loaded mod and, for `qol.dll` and `localization.dll`, every feature as `on` or `skipped` with the reason.
 
 ## Building
 
