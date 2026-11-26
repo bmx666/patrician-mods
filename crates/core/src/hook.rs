@@ -145,10 +145,22 @@ impl Plan {
     /// Detour of a function entry (any module): `prologue` (whole position-independent instructions, at least 5 bytes)
     /// is checked at `entry` and replaced by `jmp target` + nops. Returns a trampoline that runs the prologue and
     /// continues in the function: calling it = calling the original.
+    ///
+    /// An entry that already starts with `jmp rel32` (detoured by another mod, e.g. `localization.dll` before
+    /// `qol.dll`) is chained: the jump is replaced and the trampoline jumps to its old target.
     pub fn detour(&mut self, entry: u32, prologue: &[u8], target: u32) -> Result<u32, String> {
         let n = prologue.len();
         if n < 5 {
             return Err(format!("detour {entry:#x}: prologue shorter than 5 bytes"));
+        }
+        let head = unsafe { mem::bytes(entry, 5) };
+        if head[0] == 0xe9 {
+            let prev = entry.wrapping_add(5).wrapping_add(u32::from_le_bytes([head[1], head[2], head[3], head[4]]));
+            let cave = mem::alloc_code(5)?;
+            let c = rel5(0xe9, cave, prev);
+            unsafe { core::ptr::copy_nonoverlapping(c.as_ptr(), cave as *mut u8, c.len()) };
+            self.write(entry, rel5(0xe9, entry, target).to_vec());
+            return Ok(cave);
         }
         self.check(entry, prologue)?;
         let cave = mem::alloc_code(n + 5)?;

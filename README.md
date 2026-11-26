@@ -55,8 +55,21 @@ The loader uses the same mod interface as the [P3Modding modloader](https://p3mo
 | `speed_keys` | ✓ | ✓ | `+` / `-` (main keyboard or numpad) change the game speed. |
 | `speed_plate` | ✓ | ✓ | Game speed buttons centred below the top bar; click to set the speed. |
 | `stream_open` | ✓ | ✓ | Music and voice files are played as `.mp3` or `.aac`, whichever exists. |
+| `widescreen` | ✓ | | The third resolution of the options ("1280 x 1024") becomes any size, see below. |
 
 Keys and speed changes are ignored while a window with a text field is open, and follow the multiplayer rules of the game (only the host or a single player changes the speed).
+
+### Widescreen (Patrician II)
+
+The third resolution of the options uses the size from `mods\settings.ini`:
+
+```ini
+[display]
+width=1920      ; 0 = 1280 x 1024 (the original size)
+height=1080
+```
+
+With this resolution selected, the options list also steps through 33 common sizes (4:3, 5:4, 16:10, 16:9, 21:9, 32:9, Mac Retina) and the chosen one is saved to `[display]`. Any other size works as well: width 1026 to 4096 (even), height 720 to 2400. The size changes when a game is started or loaded. The top bar, the carving at the bottom right and the fast-travel map are fitted to the size. Their pictures and ini entries are made from the game's own files at every start, in `mods\qol\wide\`.
 
 ## Language (`mods\localization.dll`)
 
@@ -80,6 +93,10 @@ exe=            ; launcher: game executable, empty = Patrician3.exe, else Patric
 
 [qol]
 wasd=1          ; one key per feature, see the table above; missing = 1
+
+[display]
+width=0         ; Patrician II widescreen, see above
+height=0
 
 [localization]
 lang=en         ; see Language above

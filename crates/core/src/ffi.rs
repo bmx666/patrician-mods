@@ -59,6 +59,7 @@ extern "system" {
     pub fn FlushInstructionCache(process: HANDLE, addr: *const c_void, size: usize) -> BOOL;
     pub fn GetCurrentProcess() -> HANDLE;
     pub fn GetFileAttributesA(name: *const u8) -> u32;
+    pub fn WritePrivateProfileStringW(section: *const u16, key: *const u16, value: *const u16, file: *const u16) -> BOOL;
     pub fn GetTickCount() -> u32;
     pub fn GetLastError() -> u32;
     pub fn CreateProcessW(
