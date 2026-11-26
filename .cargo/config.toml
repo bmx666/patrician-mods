@@ -1,0 +1,4 @@
+# The games are 32-bit Windows programs: every artifact is built for i686 Windows.
+# Cross build (macOS / Linux): cargo zigbuild --release
+[build]
+target = "i686-pc-windows-gnu"

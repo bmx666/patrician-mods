@@ -1,0 +1,15 @@
+[package]
+name = "qol"
+description = "Quality-of-life features and fixes of the original bugs for Patrician II and Patrician III (mods\\qol.dll)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[lib]
+name = "qol"
+crate-type = ["cdylib"]
+
+[dependencies]
+pcore.workspace = true

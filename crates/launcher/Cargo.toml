@@ -1,0 +1,15 @@
+[package]
+name = "patrician-launcher"
+description = "Starts Patrician II / III with mods\\*.dll loaded (no DLL override needed under Wine)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "patrician-launcher"
+path = "src/main.rs"
+
+[dependencies]
+pcore.workspace = true

@@ -1,0 +1,41 @@
+# Build and package all artifacts. Not active: runs only when started by hand (Actions tab -> Run workflow).
+# To build automatically, uncomment the push / tag triggers below.
+name: build
+
+on:
+  workflow_dispatch:
+  # push:
+  #   branches: [main]
+  #   tags: ["v*"]
+  # pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: i686-pc-windows-gnu
+
+      - uses: mlugg/setup-zig@v1
+        with:
+          version: 0.13.0
+
+      - name: Install cargo-zigbuild
+        run: cargo install --locked cargo-zigbuild
+
+      - name: Build and package
+        run: sh tools/package.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: patrician-mods
+          path: dist/*.zip
+
+      # - name: Release (tags only)
+      #   if: startsWith(github.ref, 'refs/tags/v')
+      #   uses: softprops/action-gh-release@v2
+      #   with:
+      #     files: dist/*.zip

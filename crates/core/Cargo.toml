@@ -1,0 +1,11 @@
+[package]
+name = "pcore"
+description = "Shared core of the Patrician II / III mod loader and mods: game detection, settings, log, memory patching, hooks."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[lib]
+path = "src/lib.rs"
