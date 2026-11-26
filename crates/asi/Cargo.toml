@@ -1,0 +1,11 @@
+[package]
+name = "asi"
+description = "Shared glue of the Miles Sound System 6 ASI codecs (Win32\\*.asi): RIB registration and the streaming contract."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[lib]
+path = "src/lib.rs"

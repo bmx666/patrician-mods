@@ -1,0 +1,19 @@
+[package]
+name = "asi-mp3"
+description = "Miles Sound System 6 MPEG audio ASI codec (Win32\\Mp3dec.asi): minimp3 built for SSE2, in place of the x87 original."
+version.workspace = true
+edition.workspace = true
+license = "MIT AND CC0-1.0"
+rust-version.workspace = true
+repository.workspace = true
+build = "build.rs"
+
+[lib]
+name = "mp3dec"
+crate-type = ["cdylib"]
+
+[dependencies]
+asi = { path = "../asi" }
+
+[build-dependencies]
+cc = "1"

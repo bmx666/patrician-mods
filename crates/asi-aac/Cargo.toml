@@ -1,0 +1,20 @@
+[package]
+name = "asi-aac"
+description = "Miles Sound System 6 AAC (ADTS) ASI codec (Win32\\Aacdec.asi): FAAD3, AAC-LC and HE-AAC v1/v2, SSE2."
+version.workspace = true
+edition.workspace = true
+license = "MIT AND LGPL-2.1-or-later"
+rust-version.workspace = true
+repository.workspace = true
+build = "build.rs"
+
+[lib]
+name = "aacdec"
+crate-type = ["cdylib"]
+
+[dependencies]
+asi = { path = "../asi" }
+libm = "0.2"
+
+[build-dependencies]
+cc = "1"

@@ -13,6 +13,9 @@ Mod loader and quality-of-life mod for **Patrician II** (GOG) and **Patrician II
 | `mods\qol.dll` | Quality-of-life features and fixes of original bugs (see below). |
 | `mods\localization.dll` | Language files from `mods\localization\<lang>\` (see below). |
 | `mods\settings.ini` | Settings; every feature can be switched off. |
+| `Win32\Mp3dec.asi` | MP3 decoder of the game's sound system, replaces the original (see below). |
+| `Win32\Aacdec.asi` | AAC decoder for the game's sound system (see below). |
+| `licenses\` | Licenses of the decoders minimp3 and FAAD3. |
 
 The graphics renderer `ddraw_dll.dll` is not part of this package. Get it from [patrician-ddraw](https://github.com/bmx666/patrician-ddraw/releases) and replace the game's file yourself.
 
@@ -33,7 +36,7 @@ Other versions are detected and left alone: every feature checks the original by
    - **Windows:** `winmm.dll` is picked up automatically.
    - **Wine, CrossOver, Game Porting Toolkit (macOS), Proton:** Wine prefers its own `winmm.dll`. Either start the game with `patrician-launcher.exe`, or set the DLL override `winmm` to *native, builtin* (`winecfg` → Libraries, or `WINEDLLOVERRIDES="winmm=n,b"`).
 
-To uninstall, delete `winmm.dll`, `patrician-launcher.exe` and the `mods` folder.
+To uninstall, delete `winmm.dll`, `patrician-launcher.exe`, `Win32\Aacdec.asi`, the `mods` and `licenses` folders, and restore the original `Win32\Mp3dec.asi` from the game installer.
 
 ### P3Modding
 
@@ -56,6 +59,13 @@ The loader uses the same mod interface as the [P3Modding modloader](https://p3mo
 | `speed_plate` | ✓ | ✓ | Game speed buttons centred below the top bar; click to set the speed. |
 | `stream_open` | ✓ | ✓ | Music and voice files are played as `.mp3` or `.aac`, whichever exists. |
 | `widescreen` | ✓ | ✓ | The third resolution of the options ("1280 x 1024") becomes any size, see below. |
+
+### Sound decoders (`Win32\*.asi`)
+
+Both games play music and voices through the Miles Sound System, which loads every decoder in `Win32\*.asi` and picks one by the file extension.
+
+- `Mp3dec.asi` replaces the original MP3 decoder. The original runs on the x87 FPU only, which Rosetta 2 (macOS on Apple Silicon) emulates slowly, so the game froze on every music change. This one is [minimp3](https://github.com/lieff/minimp3) built for SSE2.
+- `Aacdec.asi` adds `.aac` files (ADTS; AAC-LC, HE-AAC v1/v2, mono or stereo), decoded by FAAD3 from [faac](https://github.com/FreewareAdvancedAudio/faac). With `stream_open`, an `.aac` file is played wherever the game asks for the `.mp3` of the same name. An ID3v2 `TLEN` frame gives the exact track length.
 
 Keys and speed changes are ignored while a window with a text field is open, and follow the multiplayer rules of the game (only the host or a single player changes the speed).
 
@@ -126,9 +136,12 @@ sh tools/package.sh          # dist/patrician-mods-<version>.zip
 | `crates/launcher` | `patrician-launcher.exe` |
 | `crates/qol` | `qol.dll` |
 | `crates/localization` | `localization.dll` |
+| `crates/asi` | shared: Miles ASI codec registration and streaming |
+| `crates/asi-mp3` | `mp3dec.dll` → `Win32\Mp3dec.asi` (minimp3, C, CC0) |
+| `crates/asi-aac` | `aacdec.dll` → `Win32\Aacdec.asi` (FAAD3, C, LGPL-2.1-or-later) |
 
 The GitHub Actions workflow `.github/workflows/build.yml` builds the zip; it runs only when started by hand.
 
 ## License
 
-[MIT](LICENSE). *Patrician II* and *Patrician III* are trademarks of their respective owners. This project is not affiliated with them.
+[MIT](LICENSE). The decoders compiled into the `.asi` files keep their licenses: minimp3 is CC0 (`crates/asi-mp3/c/LICENSE.minimp3`), FAAD3 is LGPL-2.1-or-later (`crates/asi-aac/faad3/COPYING`, source and version in `crates/asi-aac/faad3/UPSTREAM`). *Patrician II* and *Patrician III* are trademarks of their respective owners. This project is not affiliated with them.
