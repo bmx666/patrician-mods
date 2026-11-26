@@ -12,6 +12,7 @@ Mod loader and quality-of-life mod for **Patrician II** (GOG) and **Patrician II
 | `patrician-launcher.exe` | Alternative way to start the game with the mods, without `winmm.dll` (for Wine / macOS). |
 | `mods\qol.dll` | Quality-of-life features and fixes of original bugs (see below). |
 | `mods\localization.dll` | Language files from `mods\localization\<lang>\` (see below). |
+| `mods\nosmc.dll` | Faster drawing on Apple Silicon and other ARM64 hosts (see below). |
 | `mods\settings.ini` | Settings; every feature can be switched off. |
 | `Win32\Mp3dec.asi` | MP3 decoder of the game's sound system, replaces the original (see below). |
 | `Win32\Aacdec.asi` | AAC decoder for the game's sound system (see below). |
@@ -96,6 +97,17 @@ The main menu has a language selector at the top left: `<` / `>` step through th
 
 Patrician II: when the language's `scripts\buttons.ini` defines `[Button6]` (72x18), the Undo button of the automatic trading window uses it (room for longer words such as Отмена or Atšaukti), and the "trade with town / office" toggles move apart to make room.
 
+## Apple Silicon / ARM64 (`mods\nosmc.dll`)
+
+The image decoder `AIM.dll` of both games draws sprites with self-modifying code: its blitters rewrite their own instructions and keep counters inside their code pages on every sprite and row. An x86 translator (Rosetta 2 under Wine / CrossOver / Game Porting Toolkit on macOS, Prism on Windows on ARM, FEX or Box86 on Linux) throws its translation of a page away on every such write. `nosmc.dll` moves that data out of the code pages and makes the patched instructions read variables instead, in memory at start; `AIM.dll` on disk is not changed.
+
+```ini
+[nosmc]
+enabled=auto    ; auto = on for macOS, Rosetta 2 or an ARM64 host; 1 = always; 0 = never
+```
+
+`mods\loader.log` shows the detected host (Wine version and host system, CPU name, native machine) and the result.
+
 ## Settings (`mods\settings.ini`)
 
 ```ini
@@ -112,6 +124,9 @@ height=0
 
 [localization]
 lang=en         ; see Language above
+
+[nosmc]
+enabled=auto    ; see Apple Silicon / ARM64 above
 ```
 
 ## Log
@@ -136,6 +151,7 @@ sh tools/package.sh          # dist/patrician-mods-<version>.zip
 | `crates/launcher` | `patrician-launcher.exe` |
 | `crates/qol` | `qol.dll` |
 | `crates/localization` | `localization.dll` |
+| `crates/nosmc` | `nosmc.dll` (x86 decoder: [iced-x86](https://github.com/icedland/iced), MIT) |
 | `crates/asi` | shared: Miles ASI codec registration and streaming |
 | `crates/asi-mp3` | `mp3dec.dll` → `Win32\Mp3dec.asi` (minimp3, C, CC0) |
 | `crates/asi-aac` | `aacdec.dll` → `Win32\Aacdec.asi` (FAAD3, C, LGPL-2.1-or-later) |

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/core", "crates/winmm", "crates/launcher", "crates/qol", "crates/localization", "crates/asi", "crates/asi-mp3", "crates/asi-aac"]
+members = ["crates/core", "crates/winmm", "crates/launcher", "crates/qol", "crates/localization", "crates/nosmc", "crates/asi", "crates/asi-mp3", "crates/asi-aac"]
 
 [workspace.package]
 version = "0.1.0"

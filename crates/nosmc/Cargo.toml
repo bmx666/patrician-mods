@@ -1,0 +1,16 @@
+[package]
+name = "nosmc"
+description = "Removes the self-modifying blitter code of AIM.dll in memory, for x86 translators such as Rosetta 2 (mods\\nosmc.dll)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[lib]
+name = "nosmc"
+crate-type = ["cdylib"]
+
+[dependencies]
+pcore.workspace = true
+iced-x86 = { version = "1.21", default-features = false, features = ["std", "decoder", "instr_info"] }

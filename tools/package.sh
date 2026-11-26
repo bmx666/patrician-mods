@@ -1,6 +1,7 @@
 #!/bin/sh
 # Builds every artifact (i686 Windows) and packs dist/patrician-mods-<version>.zip:
-#   winmm.dll, patrician-launcher.exe, mods/qol.dll, mods/localization.dll, mods/settings.ini, mods/localization/,
+#   winmm.dll, patrician-launcher.exe, mods/qol.dll, mods/localization.dll, mods/nosmc.dll, mods/settings.ini,
+#   mods/localization/,
 #   Win32/Mp3dec.asi, Win32/Aacdec.asi, licenses/, LICENSE, README.md
 # Requires: Rust (target i686-pc-windows-gnu), zig, cargo-zigbuild, zip.
 set -eu
@@ -16,7 +17,7 @@ cargo zigbuild --release --target "$TARGET"
 rm -rf "$STAGE" "$STAGE.zip"
 mkdir -p "$STAGE/mods" "$STAGE/Win32" "$STAGE/licenses"
 cp "$OUT/winmm.dll" "$OUT/patrician-launcher.exe" "$STAGE/"
-cp "$OUT/qol.dll" "$OUT/localization.dll" "$STAGE/mods/"
+cp "$OUT/qol.dll" "$OUT/localization.dll" "$OUT/nosmc.dll" "$STAGE/mods/"
 cp dist-template/mods/settings.ini "$STAGE/mods/"
 cp -r dist-template/mods/localization "$STAGE/mods/"
 # Miles codecs: both games load Win32\*.asi (AIL_set_redist_directory "./win32")
