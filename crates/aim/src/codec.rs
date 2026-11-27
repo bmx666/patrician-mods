@@ -1,5 +1,7 @@
 //! File formats read by the decoder, chosen by the file name extension: `.bmp`, `.tga`, `.rgb` (SGI), `.jpg` and `.aim`
-//! (Ascaron layered images). JPEG is decoded by `aimcodec::jpeg` where the original calls `ijl11.dll`.
+//! (Ascaron layered images). JPEG is decoded by `aimcodec::jpeg` where the original calls `ijl11.dll`. PNG, which the
+//! original does not read, is recognised by its signature whatever the name (`aimcodec::png`), so a PNG file can
+//! stand in for a game picture of any format.
 //!
 //! Reads are bounded by the given data size: where the original would read past the data of a broken file, these
 //! read zeros or fail.
@@ -8,6 +10,7 @@ use crate::img::*;
 use crate::pixels::{swap24_in_place, swap32};
 use crate::squiz;
 use aimcodec::jpeg::{self, PixelOrder};
+use aimcodec::png;
 
 /// Input bytes at a 32-bit address.
 #[derive(Clone, Copy)]
@@ -68,10 +71,15 @@ enum Kind {
     Rgb,
     Jpg,
     Aim,
+    Png,
 }
 
-/// The format named by the last three characters of the file name (ASCII case ignored).
-unsafe fn kind(name: *const u8) -> Option<Kind> {
+/// The format of a file: PNG by its signature, else the one named by the last three characters of the file name
+/// (ASCII case ignored).
+unsafe fn kind(name: *const u8, data: Data) -> Option<Kind> {
+    if png::is_png(data.slice()) {
+        return Some(Kind::Png);
+    }
     if name.is_null() {
         return None;
     }
@@ -91,6 +99,8 @@ unsafe fn kind(name: *const u8) -> Option<Kind> {
         Some(Kind::Jpg)
     } else if is(b"aim") {
         Some(Kind::Aim)
+    } else if is(b"png") {
+        Some(Kind::Png)
     } else {
         None
     }
@@ -98,12 +108,13 @@ unsafe fn kind(name: *const u8) -> Option<Kind> {
 
 /// Decodes a file into the source of the block, then converts it when the destination has a format.
 pub unsafe fn decode(p: *mut Pair, name: *const u8, data: Data) -> bool {
-    match kind(name) {
+    match kind(name, data) {
         Some(Kind::Bmp) => bmp_read(&mut *p, data),
         Some(Kind::Tga) => tga_read(&mut *p, data),
         Some(Kind::Rgb) => rgb_read(&mut *p, data),
         Some(Kind::Jpg) => jpg_read(&mut *p, data),
         Some(Kind::Aim) => aim_read(p, data),
+        Some(Kind::Png) => png_read(&mut *p, data),
         None => false,
     }
 }
@@ -114,13 +125,14 @@ pub unsafe fn inspect(gfx: *mut u32, name: *const u8, data: Data) -> bool {
         return false;
     }
     let mut local: Pair = [0; 33];
-    let (ok, fields) = match kind(name) {
+    let (ok, fields) = match kind(name, data) {
         Some(Kind::Bmp) => (bmp_info(&mut local, data), 2..7),
         Some(Kind::Tga) => (tga_info(&mut local, data), 2..7),
         Some(Kind::Rgb) => (rgb_info(&mut local, data), 2..7),
         Some(Kind::Jpg) => (jpg_info(&mut local, data), 2..7),
         // The whole descriptor of the first image (11 dwords).
         Some(Kind::Aim) => (aim_layers(&mut local, data, 1), 0..11),
+        Some(Kind::Png) => (png_info(&mut local, data), 2..7),
         None => (false, 0..0),
     };
     if ok {
@@ -387,6 +399,27 @@ unsafe fn jpg_read(p: &mut Pair, data: Data) -> bool {
     let out = bytes_mut(p[PIX], pitch.wrapping_mul(rows));
     if image.write_to(out, pitch as usize, w, rows as usize, order).is_err() {
         return false;
+    }
+    finish(p)
+}
+
+// ---- PNG: decoded to BGRA by `aimcodec::png`.
+
+unsafe fn png_info(local: &mut Pair, data: Data) -> bool {
+    let Ok(h) = png::read_header(data.slice()) else { return false };
+    set_format(local, 0, h.width, h.height, 4);
+    true
+}
+
+unsafe fn png_read(p: &mut Pair, data: Data) -> bool {
+    let Ok(image) = png::decode(data.slice()) else { return false };
+    if !alloc_src(p, image.width, image.height, 4) {
+        return false;
+    }
+    let (row, rows, pitch) = (image.width as usize * 4, image.height as usize, p[PITCH] as usize);
+    let out = bytes_mut(p[PIX], (pitch * rows) as i32);
+    for (y, line) in image.bgra.chunks_exact(row).enumerate() {
+        out[y * pitch..y * pitch + row].copy_from_slice(line);
     }
     finish(p)
 }

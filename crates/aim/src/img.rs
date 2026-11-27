@@ -9,6 +9,7 @@
 //! 9 = ARGB4444, 10 = ARGB1555, 11 / 12 = 16-bit with the masks of the descriptor, 13..17 = DXT1..DXT5.
 //! Palettes are 256 BGRA entries.
 
+use crate::textures::Filter;
 use crate::{pixels, sys};
 use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -28,7 +29,8 @@ pub const SHIFT: usize = 11;
 pub const FLAGS: usize = 15;
 pub const ENV: usize = 32;
 
-/// Environment of the current call (`AIM_SETENV`); bit 0 = bilinear instead of nearest scaling.
+/// Environment of the current call (`AIM_SETENV`); bit 0 = bilinear instead of nearest scaling (`[aim] filter =
+/// original`).
 pub static CURRENT_ENV: AtomicU32 = AtomicU32::new(0);
 
 pub fn set_env(p: &Pair) {
@@ -424,33 +426,147 @@ unsafe fn scale_convert(p: *mut Pair) -> bool {
     true
 }
 
-/// Scales the source into the destination of the same format and size per pixel: nearest pixel, or bilinear with
-/// environment bit 0 (images below 3 bytes per pixel then go through BGRA and end as BGRA).
+/// Scales the source into the destination of the same format and size per pixel, by the filter of `[aim] filter`
+/// (see [`crate::textures::Filter`]).
 unsafe fn resample(p: *mut Pair) {
-    let q = &mut *p;
-    if bilinear() {
-        if q[BPP] as i32 > 2 {
-            bilinear_scale(q);
-            return;
+    match crate::textures::config().filter {
+        Filter::Original => {
+            if bilinear() {
+                env_bilinear(p);
+            } else {
+                nearest(&mut *p);
+            }
         }
-        let mut tmp: Pair = [0; 33];
-        let t: *mut Pair = &mut tmp;
-        move_src_src(t, p);
-        (*t)[D + W] = (*t)[W];
-        (*t)[D + H] = (*t)[H];
-        (*t)[D + FMT] = 4;
-        alloc_dst(&mut *t);
-        convert(t);
-        move_dst_src(t, t);
-        (*t)[D + W] = (*p)[D + W];
-        (*t)[D + H] = (*p)[D + H];
-        (*t)[D + FMT] = (*t)[FMT];
-        alloc_dst(&mut *t);
-        bilinear_scale(&mut *t);
-        move_dst_dst(p, t);
+        Filter::Nearest => nearest(&mut *p),
+        Filter::Smooth => smooth_resample(p),
+    }
+}
+
+/// The original's bilinear scaling of environment bit 0: images below 3 bytes per pixel go through BGRA and end as
+/// BGRA.
+unsafe fn env_bilinear(p: *mut Pair) {
+    let q = &mut *p;
+    if q[BPP] as i32 > 2 {
+        bilinear_scale(q);
+        return;
+    }
+    through_bgra(p, |t| bilinear_scale(&mut *t));
+}
+
+/// Converts the source to BGRA, scales it to the destination size with `scale` and leaves a BGRA destination.
+unsafe fn through_bgra(p: *mut Pair, scale: impl FnOnce(*mut Pair)) {
+    let mut tmp: Pair = [0; 33];
+    let t: *mut Pair = &mut tmp;
+    move_src_src(t, p);
+    (*t)[D + W] = (*t)[W];
+    (*t)[D + H] = (*t)[H];
+    (*t)[D + FMT] = 4;
+    alloc_dst(&mut *t);
+    if !convert(t) {
+        // The original goes on with whatever came out; stop instead (a smooth scale would retry without end).
+        move_src_src(p, t);
         free(&mut *t, true, true);
         return;
     }
+    move_dst_src(t, t);
+    (*t)[D + W] = (*p)[D + W];
+    (*t)[D + H] = (*p)[D + H];
+    (*t)[D + FMT] = (*t)[FMT];
+    alloc_dst(&mut *t);
+    scale(t);
+    move_dst_dst(p, t);
+    free(&mut *t, true, true);
+}
+
+/// Smooth scaling: palette images by nearest pixel (their indices cannot be blended), 24- and 32-bit images by
+/// [`aimcodec::scale`], 16-bit and DXT images through BGRA (they end as BGRA, which the caller converts on).
+unsafe fn smooth_resample(p: *mut Pair) {
+    let q = &mut *p;
+    match q[FMT] {
+        1 | 2 => nearest(q),
+        3..=6 => {
+            if q[BPP] == q[D + BPP] && q[FMT] == q[D + FMT] && q[PIX] != 0 && q[D + PIX] != 0 {
+                smooth(
+                    q[FMT],
+                    (q[PIX], q[W], q[H], q[PITCH]),
+                    (q[D + PIX], q[D + W], q[D + H], q[D + PITCH]),
+                );
+            }
+        }
+        _ => through_bgra(p, |t| smooth_resample(t)),
+    }
+}
+
+/// Scales pixels of format 3..=6 between two buffers (address, width, height, pitch) with [`aimcodec::scale`]; alpha
+/// weighting for the 32-bit formats unless the whole source has alpha 0 (alpha unused). False for bad sizes.
+pub unsafe fn smooth(format: u32, src: (u32, u32, u32, u32), dst: (u32, u32, u32, u32)) -> bool {
+    let channels = match format {
+        3 | 4 => 4usize,
+        5 | 6 => 3,
+        _ => return false,
+    };
+    let (sa, sw, sh, sp) = (src.0, src.1 as usize, src.2 as usize, src.3 as usize);
+    let (da, dw, dh, dp) = (dst.0, dst.1 as usize, dst.2 as usize, dst.3 as usize);
+    if sa == 0 || da == 0 || sw == 0 || sh == 0 || dw == 0 || dh == 0 {
+        return false;
+    }
+    let s = bytes(sa, (sp * (sh - 1) + sw * channels) as i32);
+    let d = bytes_mut(da, (dp * (dh - 1) + dw * channels) as i32);
+    let alpha = (channels == 4 && (0..sh).any(|y| s[y * sp..y * sp + sw * 4].chunks_exact(4).any(|px| px[3] != 0)))
+        .then_some(3);
+    aimcodec::scale::resize(s, (sw, sh, sp), d, (dw, dh, dp), channels, alpha)
+}
+
+/// Converts the source of `p` in place to BGRA (nothing for BGRA); false (source unchanged) when that fails.
+pub unsafe fn bgra_source(p: *mut Pair) -> bool {
+    if (*p)[FMT] == 4 {
+        return true;
+    }
+    let mut tmp: Pair = [0; 33];
+    let t: *mut Pair = &mut tmp;
+    move_src_src(t, p);
+    (*t)[D + W] = (*t)[W];
+    (*t)[D + H] = (*t)[H];
+    (*t)[D + FMT] = 4;
+    let ok = convert(t);
+    if ok {
+        move_dst_src(p, t);
+    } else {
+        move_src_src(p, t);
+    }
+    free(&mut *t, true, true);
+    ok
+}
+
+/// Scales the source of `p` in place to `w` x `h` with [`smooth`]; a source not of format 3..=6 is converted to BGRA
+/// first. False (source unchanged or BGRA) when that fails.
+pub unsafe fn smooth_source(p: *mut Pair, w: u32, h: u32) -> bool {
+    if !(3..=6).contains(&(*p)[FMT]) && !bgra_source(p) {
+        return false;
+    }
+    let q = &mut *p;
+    let pitch = (w * q[BPP] + 3) & !3;
+    let buffer = sys::alloc(pitch.wrapping_mul(h));
+    if buffer == 0 {
+        return false;
+    }
+    if !smooth(q[FMT], (q[PIX], q[W], q[H], q[PITCH]), (buffer, w, h, pitch)) {
+        sys::free(buffer);
+        return false;
+    }
+    if q[FLAGS] & 1 != 0 {
+        sys::free(q[PIX]);
+    }
+    q[PIX] = buffer;
+    q[FLAGS] |= 1;
+    q[W] = w;
+    q[H] = h;
+    q[PITCH] = pitch;
+    true
+}
+
+/// Nearest-pixel scaling of the original (16.16 steps from the top left corner).
+unsafe fn nearest(q: &mut Pair) {
     if q[BPP] != q[D + BPP] || q[FMT] != q[D + FMT] || q[PIX] == 0 || q[D + PIX] == 0 {
         return;
     }

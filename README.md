@@ -117,7 +117,20 @@ enabled=auto    ; auto = on for macOS, Rosetta 2 or an ARM64 host; 1 = always; 0
 
 ## Image decoder (`optional\AIM.dll`)
 
-A replacement of the game's `AIM.dll`, written in Rust: the same 32 exports and results, without self-modifying code, so `mods\nosmc.dll` is not needed with it. It reads AIM (all layer types), BMP, TGA, SGI RGB and JPEG, writes BMP, TGA, JPEG and AIM files, and converts between all pixel formats, DXT compression and mipmap generation included. JPEG is decoded and encoded in Rust (`crates/aimcodec`), so the game's `ijl11.dll` is not used; DXT compression is done in Rust too, where the original asks DirectDraw. To test it, back up the game's `AIM.dll` and copy `optional\AIM.dll` over it; to go back, restore the backup.
+A replacement of the game's `AIM.dll`, written in Rust: the same 32 exports and results, without self-modifying code, so `mods\nosmc.dll` is not needed with it. It reads AIM (all layer types), BMP, TGA, SGI RGB, JPEG and PNG, writes BMP, TGA, JPEG and AIM files, and converts between all pixel formats, DXT compression and mipmap generation included. JPEG is decoded and encoded in Rust (`crates/aimcodec`), so the game's `ijl11.dll` is not used; DXT compression is done in Rust too, where the original asks DirectDraw. To test it, back up the game's `AIM.dll` and copy `optional\AIM.dll` over it; to go back, restore the backup.
+
+It also does what the original cannot:
+
+- **PNG.** PNG files are read (all colour types and bit depths, transparency, interlacing), recognised by their content whatever the file name.
+- **Replacement textures.** A `.png`, `.jpg`, `.bmp` or `.tga` file in `mods\textures\` replaces the game picture whose name, without the extension, ends with the file's path below `mods\textures\`: `mods\textures\images\town.png` replaces `images\town.bmp` (or `.aim`, `.tga`, ...), `mods\textures\town.png` any `town.*`; names ignore case, the longest match wins. A replacement can have any resolution and is not bound by the AIM format: it is decoded to 32-bit BGRA with alpha and, by default, scaled to the size of the game picture (area averaging, so a 2x or 4x master is reduced without skipping pixels). `texture_size=native` keeps its own size instead, for pictures the game scales itself; the game places pictures by its own pixel coordinates, so a larger picture is drawn larger. The folder is listed once at the first picture; the count is written to `mods\loader.log`, and so is every replacement that cannot be read (the game's picture is used then).
+- **Smooth scaling.** Conversions to another size use bilinear enlargement and area-averaging reduction, with colours weighted by alpha so transparent pixels leave no fringes, instead of the nearest pixel. Palette pictures keep nearest-pixel scaling (indices cannot be blended).
+
+```ini
+[aim]
+filter=smooth           ; smooth | nearest | original (= the game's AIM.dll: nearest, bilinear on request)
+textures=1              ; 0 = ignore mods\textures\
+texture_size=original   ; original = scale replacements to the game picture's size; native = keep their size
+```
 
 The fast-forward map of larger screen sizes of the [patrician-ddraw](https://github.com/bmx666/patrician-ddraw) renderer patches the original `AIM.dll` and is not available with this one.
 
@@ -140,6 +153,11 @@ lang=en         ; see Language above
 
 [nosmc]
 enabled=auto    ; see Apple Silicon / ARM64 above
+
+[aim]
+filter=smooth   ; optional\AIM.dll, see Image decoder above
+textures=1
+texture_size=original
 ```
 
 ## Log
@@ -168,7 +186,7 @@ sh tools/package.sh          # dist/patrician-mods-<version>.zip
 | `crates/cprtool` | `cprtool`: packs / unpacks the language archives (host tool, run by `tools/package.sh`) |
 | `crates/nosmc` | `nosmc.dll` (x86 decoder: [iced-x86](https://github.com/icedland/iced), MIT) |
 | `crates/aim` | `aim.dll` → `optional\AIM.dll` |
-| `crates/aimcodec` | shared: JPEG, AIM LZ and DXT codecs of `aim.dll`, portable (`cargo test -p aimcodec --target <host>`) |
+| `crates/aimcodec` | shared: JPEG, PNG, AIM LZ, DXT and scaling of `aim.dll`, portable (`cargo test -p aimcodec --target <host>`) |
 | `crates/asi` | shared: Miles ASI codec registration and streaming |
 | `crates/asi-mp3` | `mp3dec.dll` → `Win32\Mp3dec.asi` (minimp3, C, CC0) |
 | `crates/asi-aac` | `aacdec.dll` → `Win32\Aacdec.asi` (FAAD3, C, LGPL-2.1-or-later) |

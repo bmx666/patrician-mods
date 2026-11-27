@@ -7,6 +7,7 @@ name = "aim"
 version = "0.1.0"
 dependencies = [
  "aimcodec",
+ "pcore",
 ]
 
 [[package]]

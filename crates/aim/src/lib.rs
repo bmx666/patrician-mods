@@ -9,7 +9,11 @@
 //! mipmap generation (`AIM_GEN_MIPMAPLEVEL`).
 //!
 //! JPEG, the LZ of AIM chunks and DXT compression come from `aimcodec` (pure Rust, tested on any host): the original
-//! calls `ijl11.dll` for JPEG and DirectDraw for DXT compression, so neither is needed. The `CAIM` class is kept as
+//! calls `ijl11.dll` for JPEG and DirectDraw for DXT compression, so neither is needed.
+//!
+//! Additions over the original (`[aim]` in `mods\settings.ini`, see [`textures`]): PNG files are read; pictures in
+//! `mods\textures\` replace the game's of the same name, at any resolution; conversions to another size scale
+//! smoothly (bilinear / area averaging) instead of by nearest pixel. The `CAIM` class is kept as
 //! the empty shell it is in the original (its constructor and destructor only set up and release DirectDraw).
 // 32-bit Windows only: addresses are kept in dwords, as in the original's structures.
 #![cfg(all(windows, target_arch = "x86"))]
@@ -22,6 +26,7 @@ mod pixels;
 mod save;
 mod squiz;
 mod sys;
+mod textures;
 mod write;
 
 use codec::{Data, Reader};
@@ -62,7 +67,7 @@ unsafe fn store(image: *mut u32, p: *mut Pair) {
 }
 
 /// Gives the buffers that point into `data` (a file being read) copies of their own.
-unsafe fn own_copies(p: *mut Pair, data: &[u8]) {
+pub(crate) unsafe fn own_copies(p: *mut Pair, data: &[u8]) {
     let lo = data.as_ptr() as usize as i32;
     let hi = lo.wrapping_add(data.len() as i32);
     for o in [0, D] {
@@ -118,7 +123,12 @@ pub unsafe extern "C" fn aim_convert_memfile(image: *mut u32, name: *const u8, d
         return 0;
     }
     load(image, p);
-    if codec::decode(p, name, Data { base: data as usize as u32, size }) {
+    let data = Data { base: data as usize as u32, size };
+    let ok = match textures::decode(p, name, data) {
+        Some(ok) => ok,
+        None => codec::decode(p, name, data),
+    };
+    if ok {
         store(image, p);
         return 1;
     }
@@ -133,7 +143,12 @@ pub unsafe extern "C" fn aim_convert_file(image: *mut u32, name: *const u8) -> i
     }
     let Some(data) = sys::read_file(name) else { return 0 };
     load(image, p);
-    if !codec::decode(p, name, Data { base: data.as_ptr() as usize as u32, size: data.len() as i32 }) {
+    let file = Data { base: data.as_ptr() as usize as u32, size: data.len() as i32 };
+    let ok = match textures::decode(p, name, file) {
+        Some(ok) => ok,
+        None => codec::decode(p, name, file),
+    };
+    if !ok {
         return 0;
     }
     own_copies(p, &data);
@@ -157,13 +172,15 @@ pub unsafe extern "C" fn aim_convert_raw(image: *mut u32) -> i32 {
 
 #[export_name = "?AIM_GETFILEFORMAT_FROMMEM@@YAHPAUAIM_GFXDEF@@PBDPAEJ@Z"]
 pub unsafe extern "C" fn aim_getfileformat_frommem(gfx: *mut u32, name: *const u8, data: *mut u8, size: i32) -> i32 {
-    codec::inspect(gfx, name, Data { base: data as usize as u32, size }) as i32
+    let data = Data { base: data as usize as u32, size };
+    textures::inspect(gfx, name, data).unwrap_or_else(|| codec::inspect(gfx, name, data)) as i32
 }
 
 #[export_name = "?AIM_GETFILEFORMAT_FROMFILE@@YAHPAUAIM_GFXDEF@@PBD@Z"]
 pub unsafe extern "C" fn aim_getfileformat_fromfile(gfx: *mut u32, name: *const u8) -> i32 {
     let Some(data) = sys::read_file(name) else { return 0 };
-    codec::inspect(gfx, name, Data { base: data.as_ptr() as usize as u32, size: data.len() as i32 }) as i32
+    let data = Data { base: data.as_ptr() as usize as u32, size: data.len() as i32 };
+    textures::inspect(gfx, name, data).unwrap_or_else(|| codec::inspect(gfx, name, data)) as i32
 }
 
 #[export_name = "?AIM_CONVERT_FILE_FROMARCHIVE@@YAHPAUAIM_IMAGE@@PBDPAX@Z"]

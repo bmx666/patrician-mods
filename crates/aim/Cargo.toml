@@ -9,6 +9,7 @@ repository.workspace = true
 
 [dependencies]
 aimcodec.workspace = true
+pcore.workspace = true
 
 [lib]
 name = "aim"
