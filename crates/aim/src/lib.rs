@@ -13,13 +13,16 @@
 //!
 //! Additions over the original (`[aim]` in `mods\settings.ini`, see [`textures`]): PNG files are read; pictures in
 //! `mods\textures\` replace the game's of the same name, at any resolution; conversions to another size scale
-//! smoothly (bilinear / area averaging) instead of by nearest pixel. The `CAIM` class is kept as
+//! smoothly (bilinear / area averaging) instead of by nearest pixel. Two exports of [`direct`] serve the renderer of
+//! patrician-ddraw: decoding straight into its upload format, and a hook of the decoder of `AIM_CONVERT_MEMFILE` in
+//! place of its patch of the original's code. The `CAIM` class is kept as
 //! the empty shell it is in the original (its constructor and destructor only set up and release DirectDraw).
 // 32-bit Windows only: addresses are kept in dwords, as in the original's structures.
 #![cfg(all(windows, target_arch = "x86"))]
 #![allow(clippy::missing_safety_doc, non_snake_case)]
 
 mod codec;
+mod direct;
 mod img;
 mod mip;
 mod pixels;
@@ -123,12 +126,8 @@ pub unsafe extern "C" fn aim_convert_memfile(image: *mut u32, name: *const u8, d
         return 0;
     }
     load(image, p);
-    let data = Data { base: data as usize as u32, size };
-    let ok = match textures::decode(p, name, data) {
-        Some(ok) => ok,
-        None => codec::decode(p, name, data),
-    };
-    if ok {
+    // The original calls its decoder here (RVA 0x2984); the renderer may hook it (`AIM_HOOK_MEMFILE_DECODER`).
+    if direct::memfile_decoder()(p, name, data, size) != 0 {
         store(image, p);
         return 1;
     }

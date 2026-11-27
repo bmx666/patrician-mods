@@ -117,7 +117,7 @@ enabled=auto    ; auto = on for macOS, Rosetta 2 or an ARM64 host; 1 = always; 0
 
 ## Image decoder (`optional\AIM.dll`)
 
-A replacement of the game's `AIM.dll`, written in Rust: the same 32 exports and results, without self-modifying code, so `mods\nosmc.dll` is not needed with it. It reads AIM (all layer types), BMP, TGA, SGI RGB, JPEG and PNG, writes BMP, TGA, JPEG and AIM files, and converts between all pixel formats, DXT compression and mipmap generation included. JPEG is decoded and encoded in Rust (`crates/aimcodec`), so the game's `ijl11.dll` is not used; DXT compression is done in Rust too, where the original asks DirectDraw. To test it, back up the game's `AIM.dll` and copy `optional\AIM.dll` over it; to go back, restore the backup.
+A replacement of the game's `AIM.dll`, written in Rust: the same 32 exports and results (plus two for the patrician-ddraw renderer, below), without self-modifying code, so `mods\nosmc.dll` is not needed with it. It reads AIM (all layer types), BMP, TGA, SGI RGB, JPEG and PNG, writes BMP, TGA, JPEG and AIM files, and converts between all pixel formats, DXT compression and mipmap generation included. JPEG is decoded and encoded in Rust (`crates/aimcodec`), so the game's `ijl11.dll` is not used; DXT compression is done in Rust too, where the original asks DirectDraw. To test it, back up the game's `AIM.dll` and copy `optional\AIM.dll` over it; to go back, restore the backup.
 
 It also does what the original cannot:
 
@@ -132,7 +132,10 @@ textures=1              ; 0 = ignore mods\textures\
 texture_size=original   ; original = scale replacements to the game picture's size; native = keep their size
 ```
 
-The fast-forward map of larger screen sizes of the [patrician-ddraw](https://github.com/bmx666/patrician-ddraw) renderer patches the original `AIM.dll` and is not available with this one.
+Two extra exports serve the [patrician-ddraw](https://github.com/bmx666/patrician-ddraw) renderer, which uses them when it finds them:
+
+- `AIM_DECODE_DIRECT` decodes a picture straight into the renderer's buffer, already in the layout it uploads to Direct3D (8-bit palette or 32-bit BGRA; every other format is converted in the same call), without the `AIM_IMAGE` round trip and the extra copies.
+- `AIM_HOOK_MEMFILE_DECODER` lets the renderer swap in the fast-forward map of its screen size. On the original `AIM.dll` the renderer patches the code for that, which only works on the verified original; with this export the map works with this `AIM.dll` too. It needs a renderer build that knows the export.
 
 ## Settings (`mods\settings.ini`)
 
