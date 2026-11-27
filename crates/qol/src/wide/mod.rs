@@ -6,8 +6,9 @@
 //!
 //! The game screen layout is mostly relative to the current size (screen width / height); 3 width tests `== 1280`
 //! become `> 1024`. The 1280 pieces are switched per preset: top bar anim, bottom right carving anim, overview map
-//! screen; the fast-travel overview map is centred at its own size. The frame pictures and ini entries of every preset
-//! are made at run time from the game's own files ([`data`]).
+//! screen; the fast-travel overview map is made from the 2400x1800 master map at the largest 4:3 size that fits and
+//! centred. The frame pictures, maps and ini entries of every preset are made at run time from the game's own files
+//! ([`data`]).
 //!
 //! The game screen is built for the current preset G when a game is started / loaded, so G changes only then: the
 //! options list changes PIDX (+ label); COPYG (G = preset PIDX) runs at the mode switch sites and at the screen build;
@@ -209,7 +210,7 @@ pub struct Preset {
     /// textures.ini TEX of the top bar (per width) / of the carving (per height).
     pub tex_top: u32,
     pub tex_carv: u32,
-    /// Overview map texture (original 1280x1024, or 1024x768 if it does not fit), centred.
+    /// Overview map texture (made from the 2400x1800 master map, largest 4:3 that fits), centred.
     pub map_tex: u32,
     pub map_w: u32,
     pub map_h: u32,
@@ -222,6 +223,8 @@ pub struct Layout {
     pub presets: Vec<Preset>,
     pub widths: Vec<u32>,
     pub heights: Vec<u32>,
+    /// Overview map sizes (texture 301 + index), sorted.
+    pub maps: Vec<(u32, u32)>,
     /// Preset of this start.
     pub start: usize,
 }
@@ -230,8 +233,8 @@ static LAYOUT: Cell<Layout> = Cell::new();
 /// Address of PIDX (preset index chosen in the options) in the hook data.
 static PIDX_VA: AtomicU32 = AtomicU32::new(0);
 
-/// Ids: textures 101.. (top bars per width), 201.. (carvings per height); screenGame anims `anim0`.. (top bars, then
-/// carvings per preset); accelMap screens 3...
+/// Ids: textures 101.. (top bars per width), 201.. (carvings per height), 301.. (overview maps per size);
+/// screenGame anims `anim0`.. (top bars, then carvings per preset); accelMap screens 3...
 fn layout(want: (u32, u32), anim0: u32) -> Layout {
     let mut sizes: Vec<(u32, u32)> = LIST.to_vec();
     if !sizes.contains(&want) {
@@ -245,11 +248,15 @@ fn layout(want: (u32, u32), anim0: u32) -> Layout {
     heights.dedup();
     let wi = |w: u32| widths.iter().position(|&x| x == w).unwrap_or(0) as u32;
     let hi = |h: u32| heights.iter().position(|&x| x == h).unwrap_or(0) as u32;
+    let mut maps: Vec<(u32, u32)> = sizes.iter().map(|&(w, h)| map_fit(w, h)).collect();
+    maps.sort_unstable();
+    maps.dedup();
     let presets = sizes
         .iter()
         .enumerate()
         .map(|(i, &(w, h))| {
-            let (map_tex, map_w, map_h) = if w >= 1280 && h >= 1024 { (30024, 1280, 1024) } else { (30023, 1024, 768) };
+            let (map_w, map_h) = map_fit(w, h);
+            let map_tex = 301 + maps.iter().position(|&m| m == (map_w, map_h)).unwrap_or(0) as u32;
             Preset {
                 w,
                 h,
@@ -267,7 +274,17 @@ fn layout(want: (u32, u32), anim0: u32) -> Layout {
         })
         .collect::<Vec<_>>();
     let start = sizes.iter().position(|&s| s == want).unwrap_or(0);
-    Layout { presets, widths, heights, start }
+    Layout { presets, widths, heights, maps, start }
+}
+
+/// Overview map size for a screen: the 2400x1800 master map scaled to the largest 4:3 that fits (full height on
+/// screens wider than 4:3, full width on narrower ones).
+fn map_fit(w: u32, h: u32) -> (u32, u32) {
+    if w * 3 >= h * 4 {
+        ((h * 4 + 1) / 3, h)
+    } else {
+        (w, (w * 3 + 2) / 4)
+    }
 }
 
 pub(crate) fn current_layout() -> &'static Layout {

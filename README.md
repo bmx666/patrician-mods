@@ -87,7 +87,7 @@ width=1920      ; 0 = 1280 x 1024 (the original size)
 height=1080
 ```
 
-With this resolution selected, the options list also steps through 33 common sizes (4:3, 5:4, 16:10, 16:9, 21:9, 32:9, Mac Retina) and the chosen one is saved to `[display]`. Any other size works as well: width 1026 to 4096 (even), height 720 to 2400. The size changes when a game is started or loaded. The top bar, the carving at the bottom right and the fast-travel map are fitted to the size. Their pictures and ini entries are made from the game's own files at every start, in `mods\qol\wide\`.
+With this resolution selected, the options list also steps through 33 common sizes (4:3, 5:4, 16:10, 16:9, 21:9, 32:9, Mac Retina) and the chosen one is saved to `[display]`. Any other size works as well: width 1026 to 4096 (even), height 720 to 2400. The size changes when a game is started or loaded. The top bar, the carving at the bottom right and the fast-travel map are fitted to the size; the map is made from the game's 2400 x 1800 master map at the largest 4:3 size that fits the screen. Their pictures and ini entries are made from the game's own files at every start, in `mods\qol\wide\`.
 
 ## Language (`mods\localization.dll`)
 

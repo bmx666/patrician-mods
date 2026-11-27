@@ -1,6 +1,8 @@
 //! Widescreen data, made at run time from the game's own files (port of patrician2 / patrician3 `tools/wide.js`):
 //! - `images\wide\top_<w>.bmp`: top bar left part, w-284 wide (from `HauptscreenA1280.bmp`, planks repeated)
 //! - `images\wide\carv_<h>.bmp`: bottom right carving, 284 x (h-600) (from `HauptscreenE1280.bmp`)
+//! - `images\wide\map_<w>x<h>.bmp`: fast-travel overview map (from the 2400x1800 master `Vollansichtskarte.bmp`,
+//!   resampled in RGB, back to its palette)
 //! - `scripts\textures.ini`: + TEX of them; `scripts\screenGame.ini`: + TEXLIST0 ids, ANIM of the top bars / carvings;
 //!   `scripts\accelMap.ini`: + SCREEN / ANIM of the overview map per preset
 //!
@@ -134,6 +136,7 @@ enum Kind {
     AccelMap,
     Top(u32),
     Carv(u32),
+    Map(u32, u32),
 }
 
 /// Lower-case relative name with `\` separators (`.\` prefixes dropped); None = absolute or empty.
@@ -162,7 +165,12 @@ fn kind(key: &[u8], l: &Layout) -> Option<Kind> {
     if let Some(w) = s.strip_prefix("top_").and_then(|n| n.parse().ok()).filter(|w| l.widths.contains(w)) {
         return Some(Kind::Top(w));
     }
-    s.strip_prefix("carv_").and_then(|n| n.parse().ok()).filter(|h| l.heights.contains(h)).map(Kind::Carv)
+    if let Some(h) = s.strip_prefix("carv_").and_then(|n| n.parse().ok()).filter(|h| l.heights.contains(h)) {
+        return Some(Kind::Carv(h));
+    }
+    let (w, h) = s.strip_prefix("map_")?.split_once('x')?;
+    let m = (w.parse().ok()?, h.parse().ok()?);
+    l.maps.contains(&m).then_some(Kind::Map(m.0, m.1))
 }
 
 /// Path of the made file for `name`, made on the first request.
@@ -248,6 +256,10 @@ unsafe fn make(via: Via, name: *const u8, k: &Kind, l: &Layout) -> Result<Vec<u8
             let e = Bmp::parse(&read(via, b"images/HauptscreenE1280.bmp\0".as_ptr())?)?;
             Ok(carving(&e, h - 600).encode())
         }
+        Kind::Map(w, h) => {
+            let m = Bmp::parse(&read(via, b"images/Vollansichtskarte.bmp\0".as_ptr())?)?;
+            Ok(resample(&m, w as usize, h as usize)?.encode())
+        }
     }
 }
 
@@ -280,6 +292,16 @@ fn tex_lines(l: &Layout) -> Vec<String> {
             "UseAlpha=false".into(),
             "Count=1".into(),
             format!("OffsetNSize0=0 0 284 {}", h - 600),
+            String::new(),
+        ]);
+    }
+    for (i, &(w, h)) in l.maps.iter().enumerate() {
+        v.extend([
+            format!("[TEX{}]", 301 + i),
+            format!("TextureFile=images/wide/map_{w}x{h}.bmp"),
+            "UseAlpha=false".into(),
+            "Count=1".into(),
+            format!("OffsetNSize0=0 0 {w} {h}"),
             String::new(),
         ]);
     }
@@ -518,4 +540,72 @@ fn carving(e: &Bmp, nh: u32) -> Bmp {
         y0 += ph;
     }
     Bmp { w: e.w, h: nh, pal: e.pal.clone(), px }
+}
+
+/// Filter taps of one axis: per target pixel the first source pixel and the weights (tent filter, radius 1 source
+/// pixel when enlarging, 1 target pixel when shrinking; normalized, clamped to the edges).
+fn taps(src: usize, dst: usize) -> Vec<(usize, Vec<f32>)> {
+    let ratio = src as f32 / dst as f32;
+    let r = ratio.max(1.0);
+    (0..dst)
+        .map(|d| {
+            let c = (d as f32 + 0.5) * ratio - 0.5;
+            let lo = ((c - r).floor() + 1.0).max(0.0) as usize;
+            let hi = ((c + r).ceil() as usize).min(src);
+            let lo = lo.min(hi.saturating_sub(1));
+            let mut w: Vec<f32> = (lo..hi).map(|s| (1.0 - (s as f32 - c).abs() / r).max(0.0)).collect();
+            let sum: f32 = w.iter().sum();
+            if sum > 0.0 {
+                w.iter_mut().for_each(|x| *x /= sum);
+            } else {
+                w = vec![1.0];
+            }
+            (lo, w)
+        })
+        .collect()
+}
+
+/// 8-bit picture resized to `nw` x `nh`: filtered in RGB, each result mapped to the nearest palette colour (looked
+/// up once per 6-bit-per-channel colour).
+fn resample(m: &Bmp, nw: usize, nh: usize) -> Result<Bmp, String> {
+    let n = (m.pal.len() / 4).min(256);
+    if n == 0 || nw == 0 || nh == 0 {
+        return Err("no palette or empty size".into());
+    }
+    let rgb: Vec<[f32; 3]> = (0..256)
+        .map(|i| {
+            let p = &m.pal[4 * i.min(n - 1)..];
+            [p[2] as f32, p[1] as f32, p[0] as f32]
+        })
+        .collect();
+    let (tx, ty) = (taps(m.w, nw), taps(m.h, nh));
+    let mut near = vec![u16::MAX; 1 << 18];
+    let mut px = vec![0u8; nw * nh];
+    let mut row = vec![[0f32; 3]; nw];
+    for (y, (sy0, wy)) in ty.iter().enumerate() {
+        row.iter_mut().for_each(|c| *c = [0.0; 3]);
+        for (j, &fy) in wy.iter().enumerate() {
+            let src = &m.px[(sy0 + j) * m.w..(sy0 + j + 1) * m.w];
+            for (acc, (sx0, wx)) in row.iter_mut().zip(&tx) {
+                for (k, &fx) in wx.iter().enumerate() {
+                    let c = &rgb[src[sx0 + k] as usize];
+                    let f = fx * fy;
+                    acc[0] += c[0] * f;
+                    acc[1] += c[1] * f;
+                    acc[2] += c[2] * f;
+                }
+            }
+        }
+        for (x, acc) in row.iter().enumerate() {
+            let q = |v: f32| (v.round().clamp(0.0, 255.0) as usize) >> 2;
+            let key = q(acc[0]) << 12 | q(acc[1]) << 6 | q(acc[2]);
+            if near[key] == u16::MAX {
+                let c = [(key >> 12) * 4 + 2, (key >> 6 & 63) * 4 + 2, (key & 63) * 4 + 2].map(|v| v as f32);
+                let d = |p: &[f32; 3]| (p[0] - c[0]).powi(2) + (p[1] - c[1]).powi(2) + (p[2] - c[2]).powi(2);
+                near[key] = (0..n).min_by(|&a, &b| d(&rgb[a]).total_cmp(&d(&rgb[b]))).unwrap_or(0) as u16;
+            }
+            px[y * nw + x] = near[key] as u8;
+        }
+    }
+    Ok(Bmp { w: nw, h: nh, pal: m.pal.clone(), px })
 }
