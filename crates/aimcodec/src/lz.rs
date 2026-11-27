@@ -280,7 +280,8 @@ mod tests {
         for len in [16, 17, 18, 20, 21, 31, 32, 33, 100, 1000, MAX_LENGTH + 3, 0x10000] {
             let src = vec![0x5au8; len];
             let chunk = roundtrip(&src);
-            assert!(chunk.len() < 64, "a run of {len} bytes packs into {} bytes", chunk.len());
+            // One match covers at most MAX_LENGTH bytes; each one with its long length field takes about 11 bytes.
+            assert!(chunk.len() < 64 + len / MAX_LENGTH * 16, "a run of {len} bytes packs into {} bytes", chunk.len());
         }
     }
 
