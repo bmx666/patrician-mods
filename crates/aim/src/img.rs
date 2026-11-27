@@ -183,9 +183,10 @@ pub fn free(p: &mut Pair, src: bool, dst: bool) {
 unsafe fn move_desc(a: *mut Pair, to: usize, b: *mut Pair, from: usize, free_src: bool, free_dst: bool) {
     free(&mut *a, free_src, free_dst);
     let mut desc = [0u32; 16];
-    desc.copy_from_slice(&(*b)[from..from + 16]);
-    (*b)[from..from + 16].fill(0);
-    (*a)[to..to + 16].copy_from_slice(&desc);
+    // Each reference is short-lived, so `a` and `b` aliasing is fine.
+    desc.copy_from_slice(&(&*b)[from..from + 16]);
+    (&mut *b)[from..from + 16].fill(0);
+    (&mut *a)[to..to + 16].copy_from_slice(&desc);
 }
 
 /// a.src = b.src; b.src = 0.
