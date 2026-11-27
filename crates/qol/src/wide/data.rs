@@ -4,7 +4,8 @@
 //! - `images\wide\map_<w>x<h>.bmp`: fast-travel overview map (from the 2400x1800 master `Vollansichtskarte.bmp`,
 //!   resampled in RGB, back to its palette)
 //! - `scripts\textures.ini`: + TEX of them; `scripts\screenGame.ini`: + TEXLIST0 ids, ANIM of the top bars / carvings;
-//!   `scripts\accelMap.ini`: + SCREEN / ANIM of the overview map per preset
+//!   `scripts\accelMap.ini`: + SCREEN / ANIM of the overview map per preset; `scripts\scrollmaps.ini`: + TEXLIST30000
+//!   ids of the overview maps (only listed textures are loaded)
 //!
 //! `arc_CreateFile` / `arc_CreateMemMapped` of `archiver.dll` are detoured, and in P3 `cpr_OpenFile` (own body there,
 //! in P2 it calls `arc_CreateFile`); chained after `localization.dll`, which loads first by name. The first request
@@ -134,6 +135,7 @@ enum Kind {
     Textures,
     ScreenGame,
     AccelMap,
+    ScrollMaps,
     Top(u32),
     Carv(u32),
     Map(u32, u32),
@@ -159,6 +161,7 @@ fn kind(key: &[u8], l: &Layout) -> Option<Kind> {
         b"scripts\\textures.ini" => return Some(Kind::Textures),
         b"scripts\\screengame.ini" => return Some(Kind::ScreenGame),
         b"scripts\\accelmap.ini" => return Some(Kind::AccelMap),
+        b"scripts\\scrollmaps.ini" => return Some(Kind::ScrollMaps),
         _ => {}
     }
     let s = core::str::from_utf8(key.strip_prefix(b"images\\wide\\")?).ok()?.strip_suffix(".bmp")?;
@@ -244,10 +247,15 @@ unsafe fn make(via: Via, name: *const u8, k: &Kind, l: &Layout) -> Result<Vec<u8
         Kind::ScreenGame => {
             let mut ids: Vec<u32> = l.widths.iter().map(|&w| top_of(l, w).tex_top).collect();
             ids.extend(l.heights.iter().map(|&h| carv_of(l, h).tex_carv));
-            let base = texlist(&read(via, name)?, &ids).ok_or("screenGame.ini: no [TEXLIST0] Count / IDs")?;
+            let base =
+                texlist(&read(via, name)?, "TEXLIST0", &ids).ok_or("screenGame.ini: no [TEXLIST0] Count / IDs")?;
             Ok(append(&base, &screen_lines(l)))
         }
         Kind::AccelMap => Ok(append(&read(via, name)?, &accel_lines(l))),
+        Kind::ScrollMaps => {
+            let ids: Vec<u32> = (0..l.maps.len() as u32).map(|i| 301 + i).collect();
+            texlist(&read(via, name)?, "TEXLIST30000", &ids).ok_or("scrollmaps.ini: no [TEXLIST30000] Count / IDs".into())
+        }
         Kind::Top(w) => {
             let a = Bmp::parse(&read(via, b"images/HauptscreenA1280.bmp\0".as_ptr())?)?;
             Ok(top_bar(&a, w - 284).encode())
@@ -397,10 +405,11 @@ fn append(base: &[u8], extra: &[String]) -> Vec<u8> {
     out
 }
 
-/// `[TEXLIST0]` of screenGame.ini: `ids` added to `IDs=` (those not listed yet), `Count=` = number of ids.
-fn texlist(base: &[u8], ids: &[u32]) -> Option<Vec<u8>> {
+/// Section `sect` (upper case, e.g. `TEXLIST0` of screenGame.ini): `ids` added to `IDs=` (those not listed yet),
+/// `Count=` = number of ids.
+fn texlist(base: &[u8], sect: &str, ids: &[u32]) -> Option<Vec<u8>> {
     let ls = lines(base);
-    let start = ls.iter().position(|l| header(l).as_deref() == Some("TEXLIST0"))?;
+    let start = ls.iter().position(|l| header(l).as_deref() == Some(sect))?;
     let end = ls[start + 1..].iter().position(|l| header(l).is_some()).map_or(ls.len(), |i| start + 1 + i);
     let key = |l: &[u8], k: &[u8]| l.len() >= k.len() && l[..k.len()].eq_ignore_ascii_case(k);
     let ci = (start + 1..end).find(|&i| key(ls[i], b"count="))?;
