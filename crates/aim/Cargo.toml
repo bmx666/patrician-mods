@@ -7,6 +7,9 @@ license.workspace = true
 rust-version.workspace = true
 repository.workspace = true
 
+[dependencies]
+aimcodec.workspace = true
+
 [lib]
 name = "aim"
 crate-type = ["cdylib"]

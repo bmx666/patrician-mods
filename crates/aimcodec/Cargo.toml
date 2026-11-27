@@ -1,0 +1,11 @@
+[package]
+name = "aimcodec"
+description = "Portable codecs of the AIM.dll replacement: JPEG (stand-in for the Intel JPEG Library ijl11.dll), the LZ of AIM chunks and DXT compression."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[lib]
+path = "src/lib.rs"

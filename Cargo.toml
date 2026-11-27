@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/core", "crates/winmm", "crates/launcher", "crates/qol", "crates/localization", "crates/nosmc", "crates/aim", "crates/asi", "crates/asi-mp3", "crates/asi-aac", "crates/cpr", "crates/cprtool"]
+members = ["crates/core", "crates/winmm", "crates/launcher", "crates/qol", "crates/localization", "crates/nosmc", "crates/aim", "crates/aimcodec", "crates/asi", "crates/asi-mp3", "crates/asi-aac", "crates/cpr", "crates/cprtool"]
 
 [workspace.package]
 version = "0.1.0"
@@ -12,6 +12,7 @@ repository = "https://github.com/bmx666/patrician-mods"
 [workspace.dependencies]
 pcore = { path = "crates/core" }
 cpr = { path = "crates/cpr" }
+aimcodec = { path = "crates/aimcodec" }
 
 [profile.release]
 opt-level = 3

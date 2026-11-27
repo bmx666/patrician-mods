@@ -75,6 +75,24 @@ pub unsafe fn copy(dst: u32, src: u32, n: i32) {
     }
 }
 
+/// The `n` bytes at a 32-bit address as a slice (empty for address 0 or `n < 1`).
+pub unsafe fn bytes<'a>(a: u32, n: i32) -> &'a [u8] {
+    if a == 0 || n <= 0 {
+        &[]
+    } else {
+        core::slice::from_raw_parts(a as usize as *const u8, n as usize)
+    }
+}
+
+/// The `n` bytes at a 32-bit address as a mutable slice (empty for address 0 or `n < 1`).
+pub unsafe fn bytes_mut<'a>(a: u32, n: i32) -> &'a mut [u8] {
+    if a == 0 || n <= 0 {
+        &mut []
+    } else {
+        core::slice::from_raw_parts_mut(a as usize as *mut u8, n as usize)
+    }
+}
+
 /// Bytes per pixel of a format (0 for the DXT formats and unknown ones).
 pub fn bpp_of(format: u32) -> u32 {
     const TABLE: [u32; 13] = [0, 1, 1, 4, 4, 3, 3, 2, 2, 2, 2, 2, 2];
@@ -327,11 +345,33 @@ unsafe fn convert_depth(p: *mut Pair, depth: u32) -> bool {
         (13, 4) => pixels::dxt_to_bgra(q, 1),
         (15, 4) => pixels::dxt_to_bgra(q, 3),
         (17, 4) => pixels::dxt_to_bgra(q, 5),
-        // DXT compression is not implemented: the games only read DXT images.
-        (4, 13 | 15 | 17) => return false,
+        (4, 13 | 15 | 17) => return dxt_compress(q),
         _ => return convert_through_bgra(p, depth),
     }
     true
+}
+
+/// BGRA to DXT1 / DXT3 / DXT5 into the destination, whose pitch holds the size of the compressed image. The original
+/// has DirectDraw compress the image and fails when DirectDraw's size differs from that pitch (sizes that are not
+/// whole blocks); so does this.
+unsafe fn dxt_compress(q: &mut Pair) -> bool {
+    let Some(kind) = aimcodec::dxt::Kind::from_format(q[D + FMT]) else { return false };
+    let (w, h, pitch) = (q[D + W] as i32, q[D + H] as i32, q[PITCH] as i32);
+    if w <= 0 || h <= 0 {
+        return false;
+    }
+    let size = aimcodec::dxt::surface_size(w as usize, h as usize, kind);
+    if size != q[D + PITCH] as usize {
+        return false;
+    }
+    let src = bytes(q[PIX], pitch.wrapping_mul(h - 1).wrapping_add(w * 4));
+    match aimcodec::dxt::compress(src, w as usize, h as usize, pitch as usize, kind) {
+        Some(data) => {
+            bytes_mut(q[D + PIX], size as i32).copy_from_slice(&data);
+            true
+        }
+        None => false,
+    }
 }
 
 /// Converts through a 32-bit BGRA image for the format pairs without a direct conversion.

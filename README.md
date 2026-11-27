@@ -117,7 +117,7 @@ enabled=auto    ; auto = on for macOS, Rosetta 2 or an ARM64 host; 1 = always; 0
 
 ## Image decoder (`optional\AIM.dll`)
 
-A replacement of the game's `AIM.dll`, written in Rust: the same exports and results, for the formats the games use (AIM, BMP, TGA, SGI RGB, and JPEG through the game's `ijl11.dll`), without self-modifying code, so `mods\nosmc.dll` is not needed with it. To test it, back up the game's `AIM.dll` and copy `optional\AIM.dll` over it; to go back, restore the backup. Writing AIM files, tiled AIM layers, DXT compression and mipmap generation are not implemented: the games do not use them.
+A replacement of the game's `AIM.dll`, written in Rust: the same 32 exports and results, without self-modifying code, so `mods\nosmc.dll` is not needed with it. It reads AIM (all layer types), BMP, TGA, SGI RGB and JPEG, writes BMP, TGA, JPEG and AIM files, and converts between all pixel formats, DXT compression and mipmap generation included. JPEG is decoded and encoded in Rust (`crates/aimcodec`), so the game's `ijl11.dll` is not used; DXT compression is done in Rust too, where the original asks DirectDraw. To test it, back up the game's `AIM.dll` and copy `optional\AIM.dll` over it; to go back, restore the backup.
 
 The fast-forward map of larger screen sizes of the [patrician-ddraw](https://github.com/bmx666/patrician-ddraw) renderer patches the original `AIM.dll` and is not available with this one.
 
@@ -168,6 +168,7 @@ sh tools/package.sh          # dist/patrician-mods-<version>.zip
 | `crates/cprtool` | `cprtool`: packs / unpacks the language archives (host tool, run by `tools/package.sh`) |
 | `crates/nosmc` | `nosmc.dll` (x86 decoder: [iced-x86](https://github.com/icedland/iced), MIT) |
 | `crates/aim` | `aim.dll` → `optional\AIM.dll` |
+| `crates/aimcodec` | shared: JPEG, AIM LZ and DXT codecs of `aim.dll`, portable (`cargo test -p aimcodec --target <host>`) |
 | `crates/asi` | shared: Miles ASI codec registration and streaming |
 | `crates/asi-mp3` | `mp3dec.dll` → `Win32\Mp3dec.asi` (minimp3, C, CC0) |
 | `crates/asi-aac` | `aacdec.dll` → `Win32\Aacdec.asi` (FAAD3, C, LGPL-2.1-or-later) |

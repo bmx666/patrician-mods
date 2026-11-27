@@ -1,12 +1,13 @@
-//! File formats read by the decoder, chosen by the file name extension: `.bmp`, `.tga`, `.rgb` (SGI), `.jpg` (through
-//! `ijl11.dll`) and `.aim` (Ascaron layered images).
+//! File formats read by the decoder, chosen by the file name extension: `.bmp`, `.tga`, `.rgb` (SGI), `.jpg` and `.aim`
+//! (Ascaron layered images). JPEG is decoded by `aimcodec::jpeg` where the original calls `ijl11.dll`.
 //!
 //! Reads are bounded by the given data size: where the original would read past the data of a broken file, these
 //! read zeros or fail.
 
 use crate::img::*;
 use crate::pixels::{swap24_in_place, swap32};
-use crate::sys::{self, JpegProps};
+use crate::squiz;
+use aimcodec::jpeg::{self, PixelOrder};
 
 /// Input bytes at a 32-bit address.
 #[derive(Clone, Copy)]
@@ -16,6 +17,11 @@ pub struct Data {
 }
 
 impl Data {
+    /// The bytes as a slice (empty without data).
+    pub unsafe fn slice<'a>(&self) -> &'a [u8] {
+        bytes(self.base, self.size)
+    }
+
     pub fn u8(&self, offset: i32) -> u8 {
         if offset >= 0 && offset < self.size {
             unsafe { rb(at(self.base, offset)) }
@@ -352,58 +358,35 @@ unsafe fn rle_row(mut dst: u32, data: Data, mut offset: i32, stride: i32, limit:
     }
 }
 
-// ---- JPEG through ijl11.dll: BGRA by default (read as RGBA, red and blue exchanged), RGBA, RGB or BGR on request.
+// ---- JPEG: BGRA by default, RGBA, RGB or BGR on request; 3- and 4-component streams (the original reads the
+// parameters through ijl11.dll and refuses other component counts).
 
-unsafe fn jpg_params(data: Data) -> Option<(&'static sys::Ijl, JpegProps)> {
-    let ijl = sys::ijl()?;
-    let mut props = JpegProps::new();
-    if (ijl.init)(props.ptr()) != 0 {
-        return None;
-    }
-    props.0[JpegProps::JPG_BYTES] = data.base;
-    props.0[JpegProps::JPG_SIZE] = data.size as u32;
-    if (ijl.read)(props.ptr(), 1) != 0 || !(3..=4).contains(&props.0[JpegProps::JPG_CHANNELS]) {
-        (ijl.free)(props.ptr());
-        return None;
-    }
-    Some((ijl, props))
+unsafe fn jpg_header(data: Data) -> Option<jpeg::Header> {
+    jpeg::read_header(data.slice()).ok().filter(|h| (3..=4).contains(&h.components))
 }
 
 unsafe fn jpg_info(local: &mut Pair, data: Data) -> bool {
-    let Some((ijl, mut props)) = jpg_params(data) else { return false };
-    set_format(local, 0, props.0[JpegProps::JPG_WIDTH], props.0[JpegProps::JPG_HEIGHT], 4);
-    (ijl.free)(props.ptr());
+    let Some(h) = jpg_header(data) else { return false };
+    set_format(local, 0, h.width, h.height, 4);
     true
 }
 
 unsafe fn jpg_read(p: &mut Pair, data: Data) -> bool {
-    let Some((ijl, mut props)) = jpg_params(data) else { return false };
-    let (w, h) = (props.0[JpegProps::JPG_WIDTH], props.0[JpegProps::JPG_HEIGHT]);
-    let (format, channels, color) = match p[D + FMT] {
-        5 => (5, 3, 1),
-        6 => (6, 3, 2),
-        3 => (3, 4, 5),
-        _ => (4, 4, 5),
+    let Some(h) = jpg_header(data) else { return false };
+    let (format, order) = match p[D + FMT] {
+        5 => (5, PixelOrder::Rgb),
+        6 => (6, PixelOrder::Bgr),
+        3 => (3, PixelOrder::Rgba),
+        _ => (4, PixelOrder::Bgra),
     };
-    if !alloc_src(p, w, h, format) {
-        (ijl.free)(props.ptr());
+    if !alloc_src(p, h.width, h.height, format) {
         return false;
     }
-    let pr = &mut props.0;
-    pr[JpegProps::DIB_CHANNELS] = channels;
-    pr[JpegProps::DIB_HEIGHT] = h;
-    pr[JpegProps::DIB_WIDTH] = w;
-    pr[JpegProps::DIB_BYTES] = p[PIX];
-    pr[JpegProps::DIB_COLOR] = color;
-    pr[JpegProps::DIB_PAD] = p[PITCH].wrapping_sub(p[W].wrapping_mul(channels));
-    let ok = (ijl.read)(props.ptr(), 3) == 0;
-    (ijl.free)(props.ptr());
-    if !ok {
+    let Ok(image) = jpeg::decode(data.slice()) else { return false };
+    let (w, rows, pitch) = (p[W] as usize, p[H] as i32, p[PITCH] as i32);
+    let out = bytes_mut(p[PIX], pitch.wrapping_mul(rows));
+    if image.write_to(out, pitch as usize, w, rows as usize, order).is_err() {
         return false;
-    }
-    if format == 4 {
-        swap32(p[PIX], p[PIX], p[W] as i32, p[H] as i32, p[PITCH] as i32, p[PITCH] as i32);
-        p[FMT] = 4;
     }
     finish(p)
 }
@@ -542,8 +525,10 @@ unsafe fn aim_layers(p: *mut Pair, data: Data, flags: u32) -> bool {
                 }
                 break;
             }
-            // Tiled images (layer type 4) are not implemented: the games have none.
-            4 => break,
+            4 => {
+                ok = squiz_layer(&mut reader, p, flags);
+                break;
+            }
             _ => {
                 // A layer of size 0 would make the original loop for ever.
                 let before = reader.pos;
@@ -579,10 +564,9 @@ pub unsafe fn decode_layer(reader: &mut Reader, p: *mut Pair, flags: u32) -> i32
     let ok = match kind {
         0x14..=0x17 => layer_raw(reader, q, flags, kind),
         0x18..=0x1c => layer_dxt(reader, q, flags, kind - 0x17),
-        0x1d | 0x1e => layer_jpeg(reader, q, flags, kind),
+        0x1d..=0x1f => layer_jpeg(reader, q, flags, kind),
         0x21 => layer_planes(reader, q, flags),
         0x22 => layer_palette(reader, q, flags),
-        // 0x1f (JPEG with a run-length alpha mask) is not implemented: the games have none.
         _ => None,
     };
     if ok == Some(true) {
@@ -795,9 +779,11 @@ unsafe fn layer_palette(r: &mut Reader, q: &mut Pair, flags: u32) -> Option<bool
     Some(true)
 }
 
-/// 0x1d = JPEG with alpha (YCbCrA), 0x1e = JPEG (YCbCr), decoded by ijl11.dll as RGBA. Header byte 5: bit 0 = keep
-/// the RGBA order (0x1d) / BGRA order (0x1e); bit 1 = 4:2:2 (0x1e). Header bytes 7..10: channel thresholds, below
-/// which a channel is cleared; all zero = none.
+/// 0x1d = JPEG with alpha (YCbCrA), 0x1e = JPEG (YCbCr), 0x1f = JPEG (YCbCr) with a 1-bit alpha mask, decoded as
+/// RGBA. Header byte 5: bit 0 = keep the RGBA order (0x1d) / BGRA order (0x1e, 0x1f); bit 1 = 4:2:2 (0x1e, 0x1f).
+/// Header bytes 7..10: channel thresholds, below which a channel is cleared; all zero = none. 0x1d / 0x1e hold the
+/// JPEG stream up to the end of the layer; 0x1f holds `u32` size + JPEG stream, then the mask (one bit per pixel,
+/// rows without padding, highest bit first) in LZ chunks of up to 64 KiB.
 unsafe fn layer_jpeg(r: &mut Reader, q: &mut Pair, flags: u32, kind: u32) -> Option<bool> {
     let h = r.take(0x13)?;
     if flags & 1 != 0 {
@@ -814,147 +800,131 @@ unsafe fn layer_jpeg(r: &mut Reader, q: &mut Pair, flags: u32, kind: u32) -> Opt
     if flags & 2 == 0 {
         return Some(false);
     }
-    let size = (i32_at(h, 1) as i32).wrapping_sub(0x13);
-    let jpeg = r.take(size)?;
+    let stream = if kind == 0x1f {
+        let size = r.take_u32()? as i32;
+        Data { base: r.take(size)?, size }
+    } else {
+        let size = (i32_at(h, 1) as i32).wrapping_sub(0x13);
+        Data { base: r.take(size)?, size }
+    };
     let total = (q[PITCH] as i32).wrapping_mul(q[H] as i32);
     q[PIX] = crate::sys::alloc(total as u32);
     q[FLAGS] |= 1;
-    let ijl = sys::ijl()?;
-    let mut props = JpegProps::new();
-    if (ijl.init)(props.ptr()) != 0 || q[PIX] == 0 {
+    if q[PIX] == 0 {
+        return Some(false);
+    }
+    let Ok(image) = jpeg::decode(stream.slice()) else { return Some(false) };
+    let out = bytes_mut(q[PIX], total);
+    if image.write_to(out, q[PITCH] as usize, q[W] as usize, q[H] as usize, PixelOrder::Rgba).is_err() {
         return Some(false);
     }
     let options = rb(h + 5);
-    let pr = &mut props.0;
-    pr[JpegProps::DIB_WIDTH] = q[W];
-    pr[JpegProps::DIB_HEIGHT] = q[H];
-    pr[JpegProps::DIB_BYTES] = q[PIX];
-    pr[JpegProps::DIB_CHANNELS] = q[BPP];
-    pr[JpegProps::DIB_COLOR] = 5;
-    pr[JpegProps::DIB_PAD] = q[PITCH].wrapping_sub(q[W].wrapping_mul(q[BPP]));
-    pr[JpegProps::JPG_BYTES] = jpeg;
-    pr[JpegProps::JPG_SIZE] = size as u32;
-    pr[JpegProps::JPG_WIDTH] = q[W];
-    pr[JpegProps::JPG_HEIGHT] = q[H];
-    if kind == 0x1d {
-        pr[JpegProps::JPG_COLOR] = 6;
-        pr[JpegProps::JPG_CHANNELS] = 4;
-        pr[JpegProps::JPG_SUBSAMPLING] = 4;
-    } else {
-        pr[JpegProps::JPG_COLOR] = 3;
-        pr[JpegProps::JPG_CHANNELS] = 3;
-        pr[JpegProps::JPG_SUBSAMPLING] = if options & 2 != 0 { 2 } else { 1 };
-    }
-    let ok = (ijl.read)(props.ptr(), 3) == 0;
-    if ok {
-        let count = total / 4;
-        let key = rd(h + 7);
-        let t = [rb(h + 7), rb(h + 8), rb(h + 9), rb(h + 10)];
-        let channels = if kind == 0x1d { 4 } else { 3 };
-        // 0x1d exchanges red and blue when bit 0 is set, 0x1e when it is clear.
-        let swap = (options & 1 != 0) == (kind == 0x1d);
-        let mut px = q[PIX];
-        for _ in 0..count {
-            if swap {
-                let (b0, b2) = (rb(px), rb(px + 2));
-                wb(px, b2);
-                wb(px + 2, b0);
-            }
-            if key != 0 {
-                for c in 0..channels {
-                    if rb(px + c as u32) < t[c] {
-                        wb(px + c as u32, 0);
-                    }
+    let count = total / 4;
+    let key = rd(h + 7);
+    let t = [rb(h + 7), rb(h + 8), rb(h + 9), rb(h + 10)];
+    let channels = if kind == 0x1d { 4 } else { 3 };
+    // 0x1d exchanges red and blue when bit 0 is set, 0x1e / 0x1f when it is clear.
+    let swap = (options & 1 != 0) == (kind == 0x1d);
+    let mut px = q[PIX];
+    for _ in 0..count {
+        if swap {
+            let (b0, b2) = (rb(px), rb(px + 2));
+            wb(px, b2);
+            wb(px + 2, b0);
+        }
+        if key != 0 {
+            for c in 0..channels {
+                if rb(px + c as u32) < t[c] {
+                    wb(px + c as u32, 0);
                 }
             }
-            px += 4;
         }
+        px += 4;
     }
-    (ijl.free)(props.ptr());
-    Some(ok)
+    if kind == 0x1f {
+        alpha_mask(r, q);
+    }
+    Some(true)
 }
 
-/// LZ decoder of the AIM chunks: `i32 n` (negative = `-n` stored bytes), then an LSB-first bit stream in dwords:
-/// flag 0 + 8-bit literal, or flag 1 + 3-bit class + offset (1..8 bits above the class base) + length (2 plus
-/// growing fields of 2, 3, ... bits, continued while a field is all ones). Writes at most `capacity` bytes and returns
-/// `n`, as the original reports it.
+/// The alpha mask of a 0x1f layer: bit set = alpha 0xff, clear = 0. A broken mask stops early (the layer still
+/// counts as read, as in the original).
+unsafe fn alpha_mask(r: &mut Reader, q: &mut Pair) {
+    let (w, rows, pitch) = (q[W] as i32, q[H] as i32, q[PITCH] as i32);
+    let pixels = w.wrapping_mul(rows);
+    if w <= 0 || rows <= 0 || pixels <= 0 {
+        return;
+    }
+    let mut left = ((pixels as i64 + 7) / 8) as i32;
+    let mut scratch = vec![0u8; 0x11000];
+    let mut i = 0i32;
+    while left > 0 {
+        let n = left.min(0x10000);
+        let Some(size) = r.take_u32() else { return };
+        let Some(src) = r.take(size as i32) else { return };
+        aimcodec::lz::decode(bytes(src, size as i32), &mut scratch);
+        for bit in 0..n as usize * 8 {
+            if i >= pixels {
+                return;
+            }
+            let set = scratch[bit >> 3] >> (7 - (bit & 7)) & 1 != 0;
+            wb(at(q[PIX], (i / w) * pitch + (i % w) * 4 + 3), if set { 0xff } else { 0 });
+            i += 1;
+        }
+        left -= n;
+    }
+}
+
+/// Layer 4: an image of `block` x `block` tiles, `u32` width at header byte 0x25, `u32` height at 0x29, tile size at
+/// 0x2d, then the tile table (see [`squiz`]) and a pixel sub-layer with the tiles that are not one colour, side by
+/// side. Rebuilt into the source of `p` (BGRA or 8-bit palette). Flags as [`decode_layer`].
+unsafe fn squiz_layer(r: &mut Reader, p: *mut Pair, flags: u32) -> bool {
+    let mut header = [0u8; 0x30];
+    header[0] = 4;
+    if r.read_header(header.as_mut_ptr()) != 0 {
+        return false;
+    }
+    let width = u32::from_le_bytes([header[0x25], header[0x26], header[0x27], header[0x28]]);
+    let height = u32::from_le_bytes([header[0x29], header[0x2a], header[0x2b], header[0x2c]]);
+    let block = header[0x2d] as i32;
+    let mut local: Pair = [0; 33];
+    let l: *mut Pair = &mut local;
+    move_src_src(l, p);
+    let mut ok = false;
+    if let Some(size) = squiz::table_size(width as i32, height as i32, block) {
+        let mut table = vec![0u8; size];
+        r.read(table.as_mut_ptr(), size as i32);
+        ok = decode_layer(r, l, flags) == 0;
+        if ok {
+            if flags & 2 == 0 {
+                (*l)[W] = width;
+                (*l)[H] = height;
+            } else {
+                if (*l)[FMT] != 1 && (*l)[FMT] != 4 {
+                    (*l)[D + FMT] = 4;
+                    convert(l);
+                    move_dst_src(l, l);
+                }
+                (*l)[D + W] = width;
+                (*l)[D + H] = height;
+                // The original leaves the destination format unset here and so has no buffer to rebuild into.
+                (*l)[D + FMT] = (*l)[FMT];
+                ok = alloc_dst(&mut *l) && squiz::rebuild(&mut *l, &table, block);
+                move_dst_src(l, l);
+            }
+        }
+    }
+    move_src_src(p, l);
+    free(&mut *l, true, true);
+    ok
+}
+
+/// LZ decoder of the AIM chunks (see `aimcodec::lz`): writes at most `capacity` bytes at `out`, returns the byte
+/// count of the chunk as the original reports it.
 pub unsafe fn lz_decode(src: Data, out: u32, capacity: i32) -> i32 {
-    const BITS: [u32; 8] = [1, 2, 3, 4, 5, 6, 7, 8];
-    const BASE: [u32; 8] = [0, 2, 6, 14, 30, 62, 126, 254];
     let n = src.u32(0) as i32;
-    if n == 0 || out == 0 {
+    if out == 0 {
         return n.max(0);
     }
-    let put = |i: i32, v: u8| {
-        if i >= 0 && i < capacity {
-            wb(at(out, i), v);
-        }
-    };
-    let get = |i: i32| if i >= 0 && i < capacity { rb(at(out, i)) } else { 0 };
-    if n < 0 {
-        let m = n.wrapping_neg();
-        for i in 0..m {
-            put(i, src.u8(4 + i));
-        }
-        return m;
-    }
-    let mut word_at = 4;
-    let mut buffer = 0u32;
-    let mut count = 0u32;
-    // Next k (1..=31) bits, lowest first; a new dword is fetched when the current one is used up.
-    let mut bits = |k: u32| -> u32 {
-        let low_mask = |n: u32| ((1u64 << n) - 1) as u32;
-        if count >= k {
-            let v = buffer & low_mask(k);
-            buffer = if k >= 32 { 0 } else { buffer >> k };
-            count -= k;
-            return v;
-        }
-        let (low, have) = (buffer & low_mask(count), count);
-        buffer = src.u32(word_at);
-        word_at += 4;
-        let need = k - have;
-        let high = buffer & low_mask(need);
-        buffer = if need >= 32 { 0 } else { buffer >> need };
-        count = 32 - need;
-        low | high << have
-    };
-    let mut o = 0i32;
-    let mut left = n;
-    loop {
-        if bits(1) == 0 {
-            put(o, bits(8) as u8);
-            o += 1;
-            left -= 1;
-            if left == 0 {
-                break;
-            }
-            continue;
-        }
-        let class = bits(3) as usize;
-        let offset = (bits(BITS[class]) + BASE[class]) as i32;
-        let mut length = 2i32;
-        let mut k = 2;
-        loop {
-            let v = bits(k);
-            length += v as i32;
-            if v != (1 << k) - 1 {
-                break;
-            }
-            k += 1;
-            if k > 31 {
-                break;
-            }
-        }
-        for _ in 0..length {
-            put(o, get(o - offset - 1));
-            o += 1;
-        }
-        let before = left;
-        left -= length;
-        if left == 0 || length > before {
-            break;
-        }
-    }
-    n
+    aimcodec::lz::decode(src.slice(), bytes_mut(out, capacity))
 }

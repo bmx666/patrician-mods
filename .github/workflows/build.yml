@@ -26,6 +26,9 @@ jobs:
       - name: Install cargo-zigbuild
         run: cargo install --locked cargo-zigbuild
 
+      - name: Test the portable codecs (host target)
+        run: cargo test -p aimcodec --target "$(rustc -vV | sed -n 's/^host: //p')"
+
       - name: Build and package
         run: sh tools/package.sh
 

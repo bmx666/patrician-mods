@@ -4,23 +4,35 @@
 //!
 //! The renderer `ddraw_dll.dll` loads it and calls `AIM_INIT`, `AIM_CONVERT_MEMFILE` / `AIM_GETFILEFORMAT_FROMMEM`
 //! (decode a file from an archive), `AIM_CONVERT_RAW` (convert to the screen format), `AIM_SAVE_BITMAP` (screenshots)
-//! and `AIM_FREE`. Formats read: BMP, TGA, SGI RGB, JPEG (through the games' `ijl11.dll`, as the original) and AIM.
+//! and `AIM_FREE`. Formats read: BMP, TGA, SGI RGB, JPEG and AIM (all layer and sub-layer types); written: BMP, TGA,
+//! JPEG (`AIM_SAVE_BITMAP`) and AIM (`AIM_OPEN_WRITE`, `AIM_WRITE_*`). Conversions include DXT compression and
+//! mipmap generation (`AIM_GEN_MIPMAPLEVEL`).
 //!
-//! Not implemented, as the games do not use them: writing AIM files (`AIM_OPEN_WRITE` and `AIM_WRITE_*` fail), AIM
-//! tiled layers (type 4) and JPEG layers with an alpha mask (0x1f), DXT compression, `AIM_GEN_MIPMAPLEVEL` and the
-//! `CAIM` class (kept as an empty shell).
+//! JPEG, the LZ of AIM chunks and DXT compression come from `aimcodec` (pure Rust, tested on any host): the original
+//! calls `ijl11.dll` for JPEG and DirectDraw for DXT compression, so neither is needed. The `CAIM` class is kept as
+//! the empty shell it is in the original (its constructor and destructor only set up and release DirectDraw).
 // 32-bit Windows only: addresses are kept in dwords, as in the original's structures.
 #![cfg(all(windows, target_arch = "x86"))]
 #![allow(clippy::missing_safety_doc, non_snake_case)]
 
 mod codec;
 mod img;
+mod mip;
 mod pixels;
 mod save;
+mod squiz;
 mod sys;
+mod write;
 
 use codec::{Data, Reader};
 use img::*;
+use write::Writer;
+
+/// The stream object of `AIM_OPEN_READ` / `AIM_OPEN_WRITE` (one class in the original, in read or write mode).
+pub enum Stream {
+    Read(Reader),
+    Write(Writer),
+}
 
 /// Dword of `AIM_IMAGE` holding the address of the internal block.
 const BLOCK: usize = 22;
@@ -174,12 +186,17 @@ pub unsafe extern "C" fn aim_save_bitmap(image: *mut u32, mode: i32, name: *cons
     save::save(p, mode, name) as i32
 }
 
-/// Not implemented (halves the image with box filters in the original); fails.
+/// Halves the source into the destination (its size when set, else half the source).
 #[export_name = "?AIM_GEN_MIPMAPLEVEL@@YAHPAUAIM_IMAGE@@@Z"]
 pub unsafe extern "C" fn aim_gen_mipmaplevel(image: *mut u32) -> i32 {
     let p = block(image);
-    if !p.is_null() {
-        load(image, p);
+    if p.is_null() {
+        return 0;
+    }
+    load(image, p);
+    if mip::mipmap(p) {
+        store(image, p);
+        return 1;
     }
     0
 }
@@ -206,56 +223,88 @@ pub extern "C" fn aim_setvendor(_a: i32, _b: i32) -> i32 {
     1
 }
 
-// ---- Layer reader of AIM files in memory.
+// ---- Layer streams: reading AIM files in memory, writing AIM files.
 
 #[export_name = "?AIM_OPEN_READ@@YAPAXPBEH@Z"]
-pub unsafe extern "C" fn aim_open_read(data: *const u8, size: i32) -> *mut Reader {
+pub unsafe extern "C" fn aim_open_read(data: *const u8, size: i32) -> *mut Stream {
     match Reader::open(Data { base: data as usize as u32, size }) {
-        Some(reader) => Box::into_raw(Box::new(reader)),
+        Some(reader) => Box::into_raw(Box::new(Stream::Read(reader))),
         None => core::ptr::null_mut(),
     }
 }
 
+#[export_name = "?AIM_OPEN_WRITE@@YAPAXPBD@Z"]
+pub unsafe extern "C" fn aim_open_write(name: *const u8) -> *mut Stream {
+    match Writer::open(name) {
+        Some(writer) => Box::into_raw(Box::new(Stream::Write(writer))),
+        None => core::ptr::null_mut(),
+    }
+}
+
+/// Ends a stream (a written file is closed) and frees it.
 #[export_name = "?AIM_CLOSE@@YAXPAX@Z"]
-pub unsafe extern "C" fn aim_close(reader: *mut Reader) {
-    if !reader.is_null() {
-        let mut reader = Box::from_raw(reader);
-        reader.close();
+pub unsafe extern "C" fn aim_close(stream: *mut Stream) {
+    if !stream.is_null() {
+        let mut stream = Box::from_raw(stream);
+        if let Stream::Read(reader) = &mut *stream {
+            reader.close();
+        }
+    }
+}
+
+/// The reader of a stream; a write stream used for reading goes into its error state, as in the original.
+unsafe fn reader<'a>(stream: *mut Stream) -> Option<&'a mut Reader> {
+    match stream.as_mut()? {
+        Stream::Read(reader) => Some(reader),
+        Stream::Write(writer) => {
+            writer.error = true;
+            None
+        }
+    }
+}
+
+/// The writer of a stream; a read stream used for writing goes into its error state.
+unsafe fn writer<'a>(stream: *mut Stream) -> Option<&'a mut Writer> {
+    match stream.as_mut()? {
+        Stream::Write(writer) => Some(writer),
+        Stream::Read(reader) => {
+            reader.close();
+            None
+        }
     }
 }
 
 #[export_name = "?AIM_READ_LAYER@@YAHPAXPAUAIM_LAYER@@@Z"]
-pub unsafe extern "C" fn aim_read_layer(reader: *mut Reader, layer: *mut u8) -> i32 {
-    if reader.is_null() || layer.is_null() {
-        return -1;
+pub unsafe extern "C" fn aim_read_layer(stream: *mut Stream, layer: *mut u8) -> i32 {
+    match reader(stream) {
+        Some(reader) if !layer.is_null() => reader.read_header(layer),
+        _ => -1,
     }
-    (*reader).read_header(layer)
 }
 
+/// Not available in the original either (always -1); exported under both names, as there.
 #[export_name = "?AIM_GET_LAYER_SIZE@@YAHPAX@Z"]
-pub extern "C" fn aim_get_layer_size(_reader: *mut Reader) -> i32 {
+pub extern "C" fn aim_get_layer_size(_stream: *mut Stream) -> i32 {
     -1
 }
 
 #[export_name = "?AIM_SEEK_START@@YAHPAX@Z"]
-pub extern "C" fn aim_seek_start(_reader: *mut Reader) -> i32 {
+pub extern "C" fn aim_seek_start(_stream: *mut Stream) -> i32 {
     -1
 }
 
 #[export_name = "?AIM_SKIP_LAYER@@YAHPAX@Z"]
-pub unsafe extern "C" fn aim_skip_layer(reader: *mut Reader) -> i32 {
-    if reader.is_null() {
-        return -1;
+pub unsafe extern "C" fn aim_skip_layer(stream: *mut Stream) -> i32 {
+    match stream.as_mut() {
+        Some(Stream::Read(reader)) => reader.skip(),
+        _ => -1,
     }
-    (*reader).skip()
 }
 
 #[export_name = "?AIM_GET_LAYER_TYPE@@YAHPAXPAH@Z"]
-pub unsafe extern "C" fn aim_get_layer_type(reader: *mut Reader, kind: *mut i32) -> i32 {
-    if reader.is_null() {
-        return -1;
-    }
-    match (*reader).peek() {
+pub unsafe extern "C" fn aim_get_layer_type(stream: *mut Stream, kind: *mut i32) -> i32 {
+    let Some(Stream::Read(reader)) = stream.as_mut() else { return -1 };
+    match reader.peek() {
         Some(k) => {
             if !kind.is_null() {
                 *kind = k as i32;
@@ -267,49 +316,60 @@ pub unsafe extern "C" fn aim_get_layer_type(reader: *mut Reader, kind: *mut i32)
 }
 
 #[export_name = "?AIM_DECODE_BITMAP@@YAHPAXPAUAIM_IMAGE@@@Z"]
-pub unsafe extern "C" fn aim_decode_bitmap(reader: *mut Reader, image: *mut u32) -> i32 {
+pub unsafe extern "C" fn aim_decode_bitmap(stream: *mut Stream, image: *mut u32) -> i32 {
     let p = block(image);
-    if reader.is_null() || p.is_null() {
+    let Some(Stream::Read(reader)) = stream.as_mut() else { return -1 };
+    if p.is_null() {
         return -1;
     }
     load(image, p);
     free(&mut *p, true, false);
-    let result = codec::decode_layer(&mut *reader, p, 3);
+    let result = codec::decode_layer(reader, p, 3);
     store(image, p);
     result
 }
 
-// ---- Writing AIM files: not implemented (the games only read them).
-
-#[export_name = "?AIM_OPEN_WRITE@@YAPAXPBD@Z"]
-pub extern "C" fn aim_open_write(_name: *const u8) -> *mut u8 {
-    core::ptr::null_mut()
-}
-
 #[export_name = "?AIM_WRITE_LAYER@@YAHPAXPAUAIM_LAYER@@@Z"]
-pub extern "C" fn aim_write_layer(_writer: *mut u8, _layer: *mut u8) -> i32 {
-    -1
+pub unsafe extern "C" fn aim_write_layer(stream: *mut Stream, layer: *mut u8) -> i32 {
+    match writer(stream) {
+        Some(writer) => writer.write_layer(layer),
+        None => -1,
+    }
 }
 
 #[export_name = "?AIM_WRITE_IMAGE@@YAHPAXPADPAUAIM_LAYER@@PAUAIM_GFXDEF@@@Z"]
-pub extern "C" fn aim_write_image(_writer: *mut u8, _name: *mut u8, _layer: *mut u8, _gfx: *mut u32) -> i32 {
-    -1
+pub unsafe extern "C" fn aim_write_image(stream: *mut Stream, name: *mut u8, layer: *mut u8, gfx: *mut u32) -> i32 {
+    match writer(stream) {
+        Some(writer) => writer.image(name, layer, gfx),
+        None => -1,
+    }
 }
 
 #[export_name = "?AIM_WRITE_SQUIZIMAGE@@YAHPAXPADPAUAIM_LAYER@@PAUAIM_GFXDEF@@@Z"]
-pub extern "C" fn aim_write_squizimage(_writer: *mut u8, _name: *mut u8, _layer: *mut u8, _gfx: *mut u32) -> i32 {
-    -1
+pub unsafe extern "C" fn aim_write_squizimage(stream: *mut Stream, name: *mut u8, layer: *mut u8, gfx: *mut u32) -> i32 {
+    match writer(stream) {
+        Some(writer) => writer.squiz(name, layer, gfx, write::SQUIZ_BLOCK),
+        None => -1,
+    }
 }
 
 #[export_name = "?AIM_WRITE_MIPMAPIMAGE@@YAHPAXPADHPAUAIM_LAYER@@PAUAIM_GFXDEF@@@Z"]
-pub extern "C" fn aim_write_mipmapimage(
-    _writer: *mut u8,
-    _name: *mut u8,
-    _levels: i32,
-    _layer: *mut u8,
-    _gfx: *mut u32,
+pub unsafe extern "C" fn aim_write_mipmapimage(
+    stream: *mut Stream,
+    name: *mut u8,
+    levels: i32,
+    layer: *mut u8,
+    gfx: *mut u32,
 ) -> i32 {
-    -1
+    match stream.as_mut() {
+        None => -1,
+        Some(Stream::Write(writer)) => writer.mipmaps(name, levels, layer, gfx),
+        // A read stream goes into its error state (the original fails when it writes the layer header).
+        Some(Stream::Read(reader)) => {
+            reader.close();
+            -1
+        }
+    }
 }
 
 // ---- The CAIM class of the original: an object holding only its virtual table.

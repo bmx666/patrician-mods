@@ -1,8 +1,10 @@
 //! `AIM_SAVE_BITMAP`: writes the source image as BMP (modes 1 = 8-bit, 2 = 24-bit), TGA (3 = 8-bit, 4 = 16-bit 555,
-//! 5 = 24-bit, 6 = 32-bit) or JPEG (100..200 = quality 0..100, through ijl11.dll), converting a copy first.
+//! 5 = 24-bit, 6 = 32-bit) or JPEG (100..200 = quality 0..100; baseline 4:2:2 JFIF as ijl11.dll writes it for the
+//! original), converting a copy first.
 
 use crate::img::*;
-use crate::sys::{self, JpegProps, OutFile};
+use crate::sys::OutFile;
+use aimcodec::jpeg::{self, Color, EncodeParams, PixelOrder, Subsampling};
 
 pub unsafe fn save(p: *mut Pair, mode: i32, name: *const u8) -> bool {
     if !validate(&mut *p) {
@@ -118,34 +120,19 @@ unsafe fn tga(p: *mut Pair, format: u32, name: *const u8) -> bool {
     true
 }
 
+/// The source as JPEG of its BGR copy; quality 0 counts as 1 (the IJG scaling has no quality 0).
 unsafe fn jpeg(p: *mut Pair, quality: u8, name: *const u8) -> bool {
-    match OutFile::create(name) {
-        Some(file) => drop(file),
-        None => return false,
-    }
-    let Some(ijl) = sys::ijl() else { return false };
-    let mut props = JpegProps::new();
-    if (ijl.init)(props.ptr()) != 0 {
-        return false;
-    }
+    let Some(mut file) = OutFile::create(name) else { return false };
     let mut local = converted(p, 6);
-    let (w, h) = (local[D + W], local[D + H]);
-    let pr = &mut props.0;
-    pr[JpegProps::DIB_WIDTH] = w;
-    pr[JpegProps::DIB_PAD] = local[D + PITCH].wrapping_sub(w.wrapping_mul(3));
-    pr[JpegProps::DIB_CHANNELS] = 3;
-    pr[JpegProps::DIB_BYTES] = local[D + PIX];
-    pr[JpegProps::DIB_HEIGHT] = h;
-    pr[JpegProps::DIB_COLOR] = 2;
-    pr[JpegProps::JPG_FILE] = name as usize as u32;
-    pr[JpegProps::JPG_COLOR] = 3;
-    pr[JpegProps::JPG_CHANNELS] = 3;
-    pr[JpegProps::JPG_HEIGHT] = h;
-    pr[JpegProps::JPG_WIDTH] = w;
-    pr[JpegProps::JPG_SUBSAMPLING] = 2;
-    pr[JpegProps::QUALITY] = quality as u32;
-    let ok = (ijl.write)(props.ptr(), 8) == 0;
-    (ijl.free)(props.ptr());
+    let (w, h, pitch) = (local[D + W] as i32, local[D + H] as i32, local[D + PITCH] as i32);
+    let mut ok = false;
+    if local[D + PIX] != 0 && w > 0 && h > 0 {
+        let src = bytes(local[D + PIX], pitch.wrapping_mul(h - 1).wrapping_add(w * 3));
+        let params = EncodeParams { quality, color: Color::YCbCr, subsampling: Subsampling::S422, restart_interval: 0 };
+        if let Ok(stream) = jpeg::encode(src, w as u32, h as u32, pitch as usize, PixelOrder::Bgr, &params) {
+            ok = file.write(&stream);
+        }
+    }
     move_src_src(p, &mut local);
     free(&mut local, true, true);
     ok

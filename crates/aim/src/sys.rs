@@ -1,7 +1,6 @@
-//! Win32 calls: the heap of the decoded images, files, and the Intel JPEG Library `ijl11.dll` of the games.
+//! Win32 calls: the heap of the decoded images and files.
 
 use core::ffi::c_void;
-use std::sync::OnceLock;
 
 type Handle = *mut c_void;
 
@@ -10,8 +9,6 @@ extern "system" {
     fn GetProcessHeap() -> Handle;
     fn HeapAlloc(heap: Handle, flags: u32, bytes: usize) -> *mut c_void;
     fn HeapFree(heap: Handle, flags: u32, mem: *mut c_void) -> i32;
-    fn LoadLibraryA(name: *const u8) -> Handle;
-    fn GetProcAddress(module: Handle, name: *const u8) -> *mut c_void;
     fn CreateFileA(
         name: *const u8,
         access: u32,
@@ -24,6 +21,7 @@ extern "system" {
     fn ReadFile(file: Handle, buffer: *mut u8, bytes: u32, read: *mut u32, overlapped: *mut c_void) -> i32;
     fn WriteFile(file: Handle, buffer: *const u8, bytes: u32, written: *mut u32, overlapped: *mut c_void) -> i32;
     fn GetFileSize(file: Handle, high: *mut u32) -> u32;
+    fn SetFilePointer(file: Handle, distance: i32, high: *mut i32, method: u32) -> u32;
     fn CloseHandle(handle: Handle) -> i32;
 }
 
@@ -92,81 +90,33 @@ impl OutFile {
         (file != INVALID).then_some(OutFile(file))
     }
 
-    /// Writes `bytes` bytes from a 32-bit address.
-    pub fn write_at(&mut self, data: u32, bytes: i32) {
-        if bytes > 0 && data != 0 {
-            let mut written = 0u32;
-            unsafe { WriteFile(self.0, data as usize as *const u8, bytes as u32, &mut written, core::ptr::null_mut()) };
+    /// Writes `bytes` bytes from a 32-bit address; false when not all of them are written.
+    pub fn write_at(&mut self, data: u32, bytes: i32) -> bool {
+        if bytes <= 0 || data == 0 {
+            return bytes == 0;
         }
+        let mut written = 0u32;
+        let ok = unsafe { WriteFile(self.0, data as usize as *const u8, bytes as u32, &mut written, core::ptr::null_mut()) };
+        ok != 0 && written == bytes as u32
     }
 
-    pub fn write(&mut self, data: &[u8]) {
-        self.write_at(data.as_ptr() as usize as u32, data.len() as i32);
+    pub fn write(&mut self, data: &[u8]) -> bool {
+        self.write_at(data.as_ptr() as usize as u32, data.len() as i32)
+    }
+
+    /// Current position (`tell`).
+    pub fn tell(&self) -> i32 {
+        unsafe { SetFilePointer(self.0, 0, core::ptr::null_mut(), 1) as i32 }
+    }
+
+    /// Moves to `position` from the start (`lseek(fd, position, SEEK_SET)`).
+    pub fn seek(&mut self, position: i32) {
+        unsafe { SetFilePointer(self.0, position, core::ptr::null_mut(), 0) };
     }
 }
 
 impl Drop for OutFile {
     fn drop(&mut self) {
         unsafe { CloseHandle(self.0) };
-    }
-}
-
-/// Entry points of `ijl11.dll` (Intel JPEG Library 1.1, `__stdcall`), imported by ordinal as the original does.
-pub struct Ijl {
-    pub init: unsafe extern "system" fn(*mut u32) -> i32,
-    pub free: unsafe extern "system" fn(*mut u32) -> i32,
-    pub read: unsafe extern "system" fn(*mut u32, i32) -> i32,
-    pub write: unsafe extern "system" fn(*mut u32, i32) -> i32,
-}
-
-/// `ijl11.dll` from the game folder, loaded on first use; `None` when it is missing.
-pub fn ijl() -> Option<&'static Ijl> {
-    static IJL: OnceLock<Option<Ijl>> = OnceLock::new();
-    IJL.get_or_init(|| unsafe {
-        let module = LoadLibraryA(b"ijl11.dll\0".as_ptr());
-        if module.is_null() {
-            return None;
-        }
-        let get = |ordinal: usize| GetProcAddress(module, ordinal as *const u8);
-        let (init, free, read, write) = (get(2), get(3), get(4), get(5));
-        if init.is_null() || free.is_null() || read.is_null() || write.is_null() {
-            return None;
-        }
-        Some(Ijl {
-            init: core::mem::transmute::<*mut c_void, unsafe extern "system" fn(*mut u32) -> i32>(init),
-            free: core::mem::transmute::<*mut c_void, unsafe extern "system" fn(*mut u32) -> i32>(free),
-            read: core::mem::transmute::<*mut c_void, unsafe extern "system" fn(*mut u32, i32) -> i32>(read),
-            write: core::mem::transmute::<*mut c_void, unsafe extern "system" fn(*mut u32, i32) -> i32>(write),
-        })
-    })
-    .as_ref()
-}
-
-/// `JPEG_CORE_PROPERTIES` of IJL 1.1 as dwords (0x4e40 bytes, as the original reserves), with the field offsets used.
-pub struct JpegProps(pub Vec<u32>);
-
-impl JpegProps {
-    pub const DIB_BYTES: usize = 0x04 / 4;
-    pub const DIB_WIDTH: usize = 0x08 / 4;
-    pub const DIB_HEIGHT: usize = 0x0c / 4;
-    pub const DIB_PAD: usize = 0x10 / 4;
-    pub const DIB_CHANNELS: usize = 0x14 / 4;
-    pub const DIB_COLOR: usize = 0x18 / 4;
-    pub const JPG_FILE: usize = 0x20 / 4;
-    pub const JPG_BYTES: usize = 0x24 / 4;
-    pub const JPG_SIZE: usize = 0x28 / 4;
-    pub const JPG_WIDTH: usize = 0x2c / 4;
-    pub const JPG_HEIGHT: usize = 0x30 / 4;
-    pub const JPG_CHANNELS: usize = 0x34 / 4;
-    pub const JPG_COLOR: usize = 0x38 / 4;
-    pub const JPG_SUBSAMPLING: usize = 0x3c / 4;
-    pub const QUALITY: usize = 0x50 / 4;
-
-    pub fn new() -> JpegProps {
-        JpegProps(vec![0; 0x1390])
-    }
-
-    pub fn ptr(&mut self) -> *mut u32 {
-        self.0.as_mut_ptr()
     }
 }
