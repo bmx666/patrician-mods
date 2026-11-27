@@ -14,6 +14,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -28,6 +30,9 @@ jobs:
 
       - name: Test the portable codecs (host target)
         run: cargo test -p aimcodec --target "$(rustc -vV | sed -n 's/^host: //p')"
+
+      - name: Unpack the language archives
+        run: sh tools/unpack.sh
 
       - name: Build and package
         run: sh tools/package.sh

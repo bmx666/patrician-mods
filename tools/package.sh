@@ -1,8 +1,9 @@
 #!/bin/sh
 # Builds every artifact (i686 Windows) and packs dist/patrician-mods-<version>.zip:
 #   winmm.dll, patrician-launcher.exe, mods/qol.dll, mods/localization.dll, mods/nosmc.dll, mods/settings.ini,
-#   mods/localization/<lang>.cpr (dist-template/mods/localization/<lang>/ packed by cprtool, both games,
-#   tutorial voice folders <p2|p3>/musik/ and hidden files left out),
+#   mods/localization/<lang>.cpr (dist-template/mods/localization/<lang>/ packed by cprtool into
+#   resources/localization/<lang>.cpr, both games, tutorial voice folders <p2|p3>/musik/ and hidden files left out;
+#   the folder comes from tools/unpack.sh),
 #   Win32/Mp3dec.asi, Win32/Aacdec.asi, optional/AIM.dll, licenses/, LICENSE, README.md
 # Requires: Rust (target i686-pc-windows-gnu + the host target for cprtool), zig, cargo-zigbuild, zip.
 set -eu
@@ -24,10 +25,11 @@ mkdir -p "$STAGE/mods" "$STAGE/Win32" "$STAGE/optional" "$STAGE/licenses"
 cp "$OUT/winmm.dll" "$OUT/patrician-launcher.exe" "$STAGE/"
 cp "$OUT/qol.dll" "$OUT/localization.dll" "$OUT/nosmc.dll" "$STAGE/mods/"
 cp dist-template/mods/settings.ini "$STAGE/mods/"
-mkdir -p "$STAGE/mods/localization"
+mkdir -p "$STAGE/mods/localization" resources/localization
 for dir in dist-template/mods/localization/*/; do
   lang=$(basename "$dir")
-  "$CPRTOOL" pack "$STAGE/mods/localization/$lang.cpr" "$dir" --skip p2/musik --skip p3/musik
+  "$CPRTOOL" pack "resources/localization/$lang.cpr" "$dir" --skip p2/musik --skip p3/musik
+  cp "resources/localization/$lang.cpr" "$STAGE/mods/localization/"
 done
 find "$STAGE" -name .DS_Store -delete
 # Miles codecs: both games load Win32\*.asi (AIL_set_redist_directory "./win32")

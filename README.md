@@ -180,9 +180,13 @@ Rust 1.88 or newer, the target `i686-pc-windows-gnu`, [zig](https://ziglang.org)
 ```sh
 rustup target add i686-pc-windows-gnu
 cargo install --locked cargo-zigbuild
+git lfs pull                 # resources/ is stored in git LFS
+sh tools/unpack.sh           # resources/localization/*.cpr -> dist-template/mods/localization/<lang>/
 cargo zigbuild --release
 sh tools/package.sh          # dist/patrician-mods-<version>.zip
 ```
+
+The language files are kept in git only as archives, `resources/localization/<lang>.cpr` (git LFS). `tools/unpack.sh` builds `cprtool` for the host, deletes `dist-template/mods/localization/` and unpacks every archive into it (entry names come out lower case); that folder is not tracked. Edit the files there; `tools/package.sh` packs each `<lang>/` folder back into `resources/localization/<lang>.cpr` and copies the archives into the zip, so commit the changed `.cpr` files after packaging.
 
 | Crate | Output |
 |---|---|
@@ -192,7 +196,7 @@ sh tools/package.sh          # dist/patrician-mods-<version>.zip
 | `crates/qol` | `qol.dll` |
 | `crates/localization` | `localization.dll` |
 | `crates/cpr` | shared: Ascaron archive V0.9 (`.cpr`) reader and writer |
-| `crates/cprtool` | `cprtool`: packs / unpacks the language archives (host tool, run by `tools/package.sh`) |
+| `crates/cprtool` | `cprtool`: packs / unpacks the language archives (host tool, run by `tools/unpack.sh` and `tools/package.sh`) |
 | `crates/nosmc` | `nosmc.dll` (x86 decoder: [iced-x86](https://github.com/icedland/iced), MIT) |
 | `crates/aim` | `aim.dll` → `optional\AIM.dll` |
 | `crates/aimcodec` | shared: JPEG, PNG, AIM LZ, DXT and scaling of `aim.dll`, portable (`cargo test -p aimcodec --target <host>`) |
