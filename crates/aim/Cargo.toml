@@ -1,0 +1,12 @@
+[package]
+name = "aim"
+description = "Drop-in replacement of the image decoder AIM.dll of Patrician II / III, without self-modifying code (AIM.dll)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[lib]
+name = "aim"
+crate-type = ["cdylib"]

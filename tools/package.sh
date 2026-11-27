@@ -3,7 +3,7 @@
 #   winmm.dll, patrician-launcher.exe, mods/qol.dll, mods/localization.dll, mods/nosmc.dll, mods/settings.ini,
 #   mods/localization/<lang>.cpr (dist-template/mods/localization/<lang>/ packed by cprtool, both games,
 #   tutorial voice folders <p2|p3>/musik/ and hidden files left out),
-#   Win32/Mp3dec.asi, Win32/Aacdec.asi, licenses/, LICENSE, README.md
+#   Win32/Mp3dec.asi, Win32/Aacdec.asi, optional/AIM.dll, licenses/, LICENSE, README.md
 # Requires: Rust (target i686-pc-windows-gnu + the host target for cprtool), zig, cargo-zigbuild, zip.
 set -eu
 cd "$(dirname "$0")/.."
@@ -20,7 +20,7 @@ cargo build --release -p cprtool --target "$HOST"
 CPRTOOL=target/$HOST/release/cprtool
 
 rm -rf "$STAGE" "$STAGE.zip"
-mkdir -p "$STAGE/mods" "$STAGE/Win32" "$STAGE/licenses"
+mkdir -p "$STAGE/mods" "$STAGE/Win32" "$STAGE/optional" "$STAGE/licenses"
 cp "$OUT/winmm.dll" "$OUT/patrician-launcher.exe" "$STAGE/"
 cp "$OUT/qol.dll" "$OUT/localization.dll" "$OUT/nosmc.dll" "$STAGE/mods/"
 cp dist-template/mods/settings.ini "$STAGE/mods/"
@@ -33,6 +33,8 @@ find "$STAGE" -name .DS_Store -delete
 # Miles codecs: both games load Win32\*.asi (AIL_set_redist_directory "./win32")
 cp "$OUT/mp3dec.dll" "$STAGE/Win32/Mp3dec.asi"
 cp "$OUT/aacdec.dll" "$STAGE/Win32/Aacdec.asi"
+# Replacement image decoder: not installed by default, copied over the game's AIM.dll by hand
+cp "$OUT/aim.dll" "$STAGE/optional/AIM.dll"
 cp crates/asi-mp3/c/LICENSE.minimp3 "$STAGE/licenses/minimp3.txt"
 cp crates/asi-aac/faad3/COPYING "$STAGE/licenses/faad3-LGPL-2.1.txt"
 cp LICENSE README.md "$STAGE/"

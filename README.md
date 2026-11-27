@@ -16,6 +16,7 @@ Mod loader and quality-of-life mod for **Patrician II** (GOG) and **Patrician II
 | `mods\settings.ini` | Settings; every feature can be switched off. |
 | `Win32\Mp3dec.asi` | MP3 decoder of the game's sound system, replaces the original (see below). |
 | `Win32\Aacdec.asi` | AAC decoder for the game's sound system (see below). |
+| `optional\AIM.dll` | Test version of a replacement of the game's image decoder `AIM.dll`, not installed by default (see below). |
 | `licenses\` | Licenses of the decoders minimp3 and FAAD3. |
 
 The graphics renderer `ddraw_dll.dll` is not part of this package. Get it from [patrician-ddraw](https://github.com/bmx666/patrician-ddraw/releases) and replace the game's file yourself.
@@ -114,6 +115,12 @@ enabled=auto    ; auto = on for macOS, Rosetta 2 or an ARM64 host; 1 = always; 0
 
 `mods\loader.log` shows the detected host (Wine version and host system, CPU name, native machine) and the result.
 
+## Image decoder (`optional\AIM.dll`)
+
+A replacement of the game's `AIM.dll`, written in Rust: the same exports and results, for the formats the games use (AIM, BMP, TGA, SGI RGB, and JPEG through the game's `ijl11.dll`), without self-modifying code, so `mods\nosmc.dll` is not needed with it. To test it, back up the game's `AIM.dll` and copy `optional\AIM.dll` over it; to go back, restore the backup. Writing AIM files, tiled AIM layers, DXT compression and mipmap generation are not implemented: the games do not use them.
+
+The fast-forward map of larger screen sizes of the [patrician-ddraw](https://github.com/bmx666/patrician-ddraw) renderer patches the original `AIM.dll` and is not available with this one.
+
 ## Settings (`mods\settings.ini`)
 
 ```ini
@@ -160,6 +167,7 @@ sh tools/package.sh          # dist/patrician-mods-<version>.zip
 | `crates/cpr` | shared: Ascaron archive V0.9 (`.cpr`) reader and writer |
 | `crates/cprtool` | `cprtool`: packs / unpacks the language archives (host tool, run by `tools/package.sh`) |
 | `crates/nosmc` | `nosmc.dll` (x86 decoder: [iced-x86](https://github.com/icedland/iced), MIT) |
+| `crates/aim` | `aim.dll` → `optional\AIM.dll` |
 | `crates/asi` | shared: Miles ASI codec registration and streaming |
 | `crates/asi-mp3` | `mp3dec.dll` → `Win32\Mp3dec.asi` (minimp3, C, CC0) |
 | `crates/asi-aac` | `aacdec.dll` → `Win32\Aacdec.asi` (FAAD3, C, LGPL-2.1-or-later) |
