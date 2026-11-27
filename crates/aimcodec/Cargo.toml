@@ -1,6 +1,6 @@
 [package]
 name = "aimcodec"
-description = "Portable codecs of the AIM.dll replacement: JPEG (stand-in for the Intel JPEG Library ijl11.dll), the LZ of AIM chunks and DXT compression."
+description = "Portable codecs of the AIM.dll replacement: JPEG (stand-in for the Intel JPEG Library ijl11.dll), PNG, the LZ of AIM chunks, DXT compression and image scaling."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
