@@ -48,19 +48,25 @@ The loader uses the same mod interface as the [P3Modding modloader](https://p3mo
 
 | Key in `[qol]` | P2 | P3 | Feature |
 |---|---|---|---|
-| `music_fade` | ✓ | ✓ | Fix: the previous music track fades out within 5 s at any volume (it could keep playing for minutes when the music slider was low). |
-| `tutorial_ambience` | ✓ | ✓ | Fix: building ambience no longer gets stuck during the tutorial. |
-| `single_game_title` | ✓ | ✓ | Fix: the new single game screen shows "Single player" instead of "Game settings". |
-| `shipyard_knots` | ✓ | ✓ | Fix: the shipyard shows the real base speed of each ship type (5.5 / 6 / 4.5 / 5 knots). |
-| `campaign_speed` | ✓ | | Fix: a campaign starts with the game speed of the settings. |
+| `shipyard_knots` | ✓ | ✓ | The shipyard shows the real base speed of each ship type (5.5 / 6 / 4.5 / 5 knots). |
 | `ship_speed` | ✓ | ✓ | Ship panel: current speed in tenths of a knot. |
 | `building_backdrop` | ✓ | | Building windows: more opaque backdrop behind the text. |
-| `trade_route_dialog` | | ✓ | Trade route file dialog: wider window, large buttons. |
 | `wasd` | ✓ | ✓ | W A S D scroll the town and sea map like the arrow keys. |
 | `speed_keys` | ✓ | ✓ | `+` / `-` (main keyboard or numpad) change the game speed. |
 | `speed_plate` | ✓ | ✓ | Game speed buttons centred below the top bar; click to set the speed. |
-| `stream_open` | ✓ | ✓ | Music and voice files are played as `.mp3` or `.aac`, whichever exists. |
 | `widescreen` | ✓ | ✓ | The third resolution of the options ("1280 x 1024") becomes any size, see below. |
+
+Always on, without a key (fixes of original bugs and file handling):
+
+| Fix | P2 | P3 | |
+|---|---|---|---|
+| `archiver_names` | ✓ | | `archiver.dll` finds archive files with umlauts in the name (`Möwe`, `Töpfer`) whether the name is written in Windows (CP1252) or DOS (OEM) code page. The original read bytes above 7Fh from outside its lower-case table, so such files went missing (gulls on the sea map, potters) once a file was served from disk. Also applied by `localization.dll`. |
+| `music_fade` | ✓ | ✓ | The previous music track fades out within 5 s at any volume (it could keep playing for minutes when the music slider was low). |
+| `tutorial_ambience` | ✓ | ✓ | Building ambience no longer gets stuck during the tutorial. |
+| `single_game_title` | ✓ | ✓ | The new single game screen shows "Single player" instead of "Game settings". |
+| `campaign_speed` | ✓ | | A campaign starts with the game speed of the settings. |
+| `trade_route_dialog` | | ✓ | Trade route file dialog: wider window, large buttons. |
+| `stream_open` | ✓ | ✓ | Music and voice files are played as `.mp3` or `.aac`, whichever exists. |
 
 ### Sound decoders (`Win32\*.asi`)
 

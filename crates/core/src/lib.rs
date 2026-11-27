@@ -4,8 +4,10 @@
 //! - [`ini`]: `mods\settings.ini`
 //! - [`log`]: `mods\loader.log`
 //! - [`mem`], [`hook`]: memory patches with byte checks, mid-function hooks with Rust handlers
+//! - [`archiver`]: fix of the Patrician II `archiver.dll` name lookup, applied by every mod
 //! - [`mods`]: loading `mods\*.dll` and calling their `start` export (the P3Modding interface)
 
+pub mod archiver;
 pub mod ffi;
 pub mod game;
 pub mod hook;

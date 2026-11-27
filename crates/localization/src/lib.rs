@@ -40,6 +40,11 @@ pub extern "C" fn start() -> u32 {
         log::write(TAG, "skipped, unknown executable");
         return 0;
     };
+    // before the archive and the loose files are opened through archiver.dll
+    match pcore::archiver::fix_names(base) {
+        Ok(msg) => log::write(TAG, &format!("archiver_names: {msg}")),
+        Err(e) => log::write(TAG, &format!("archiver_names: skipped, {e}")),
+    }
     let pack = pack::Pack::open(&lang, base);
     match res::install(&lang, base, &pack) {
         Ok(msg) => log::write(TAG, &format!("resources: on ({msg})")),
