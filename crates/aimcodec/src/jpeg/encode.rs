@@ -95,7 +95,6 @@ pub(crate) struct PlanComp {
     pub bw: usize,
     pub bh: usize,
     pub bwp: usize,
-    pub bhp: usize,
     /// Quantized coefficients, natural order.
     pub blocks: Vec<[i16; 64]>,
 }
@@ -216,7 +215,7 @@ pub(crate) fn plan(src: &[u8], width: u32, height: u32, pitch: usize, order: Pix
                 blocks.push(dct::quantize(&data, &quant[table]));
             }
         }
-        comps.push(PlanComp { id, h: ch, v: cv, tq: table, th: table, bw: cw.div_ceil(8), bh: chh.div_ceil(8), bwp, bhp, blocks });
+        comps.push(PlanComp { id, h: ch, v: cv, tq: table, th: table, bw: cw.div_ceil(8), bh: chh.div_ceil(8), bwp, blocks });
     }
     Ok(Plan { width: w, height: h, comps, mcux, mcuy, quant })
 }
